@@ -1,6 +1,7 @@
+use chrono::Local;
 use terminal_size::{Width, terminal_size};
 
-// Import Reminder struct from main module if it's defined in main.rs
+// Import Reminder struct from main module
 use crate::Reminder;
 
 pub fn print_reminders_table(reminders: &[Reminder]) {
@@ -21,12 +22,14 @@ pub fn print_reminders_table(reminders: &[Reminder]) {
         .map(|(Width(w), _)| w as usize)
         .unwrap_or(80);
 
-    // Format timestamps and prepare string rows
+    // Format timestamps and prepare string rows in OS local time
     let rows: Vec<(String, String, String)> = reminders
         .iter()
         .map(|r| {
-            let naive = chrono::DateTime::from_timestamp(r.trigger_at, 0).unwrap_or_default();
-            let time_str = naive.format("%Y-%m-%d %H:%M").to_string();
+            let local_dt = chrono::DateTime::from_timestamp(r.trigger_at, 0)
+                .map(|dt| dt.with_timezone(&Local))
+                .unwrap_or_default();
+            let time_str = local_dt.format("%Y-%m-%d %H:%M").to_string();
             (r.id.to_string(), time_str, r.message.clone())
         })
         .collect();

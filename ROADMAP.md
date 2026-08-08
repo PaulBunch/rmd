@@ -34,8 +34,11 @@
 ## Phase 6: CLI Enhancements & Polish
 
 - [x] Refine CLI table output formatting
-- [ ] Make the time display in the table in the OS time zone
+- [x] Make the time display in the table in the OS time zone
 - [ ] Add `Left` time-remaining column with human-readable formatting (`2h 33m`, `1m 54s`, `3w 5d`, `2y 8mo` using `mo` for months to avoid `m`/`M` ambiguity)
+- [ ] Clarify the output formatting of the TIME column in the CLI table
+- [ ] Refine CLI response formatting
+- [ ] Refine the summary text and formatting of missed reminders
 - [ ] Add daemon shutdown command (`rmd stop`)
 - [ ] Advanced date & time parsing
   - [ ] Support full date-time specifiers (`YYYY-MM-DD HH:MM`, `tomorrow 15:00`, `mon 09:00`)

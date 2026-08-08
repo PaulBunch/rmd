@@ -229,6 +229,7 @@ async fn run_daemon() -> Result<()> {
                     .summary("rmd (Missed)")
                     .body(&format!("[Missed at {}] {}", dt, m.message))
                     .urgency(notify_rust::Urgency::Critical)
+                    .timeout(notify_rust::Timeout::Never) // Keep notification visible until dismissed by user
                     .show();
             }
         } else {
@@ -239,6 +240,7 @@ async fn run_daemon() -> Result<()> {
                     missed.len()
                 ))
                 .urgency(notify_rust::Urgency::Critical)
+                .timeout(notify_rust::Timeout::Never) // Keep notification visible until dismissed by user
                 .show();
         }
         let _ = save_reminders(&reminders);
@@ -275,6 +277,7 @@ async fn run_daemon() -> Result<()> {
                             .summary("Reminder")
                             .body(&r.message)
                             .urgency(notify_rust::Urgency::Critical)
+                            .timeout(notify_rust::Timeout::Never) // Keep notification visible until dismissed by user
                             .show();
                     } else {
                         remaining.push(r);
