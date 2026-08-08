@@ -29,7 +29,7 @@
 
 ## Phase 5: System Integration
 
-- [ ] Create systemd user service unit (`rmd.service`)
+- [x] Create systemd user service unit (`rmd.service`)
 
 ## Phase 6: CLI Enhancements & Polish
 

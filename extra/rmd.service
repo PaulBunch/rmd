@@ -1,0 +1,13 @@
+[Unit]
+Description=rmd - Lightweight Reminder Daemon
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/rmd daemon
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

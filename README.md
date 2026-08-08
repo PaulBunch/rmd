@@ -20,15 +20,33 @@ Set one-shot reminders that survive reboots and show up as desktop notifications
 
 ## Installation
 
+### Using Makefile (Recommended)
+
+Builds the binary, installs it to `~/.local/bin/`, and sets up the systemd user service:
+
 ```bash
-cargo install --path .
+make install
 ```
 
-Or build manually:
+To enable and start the daemon immediately:
+
+```bash
+systemctl --user enable --now rmd.service
+```
+
+To uninstall:
+
+```bash
+make uninstall
+```
+
+### Manual Installation
 
 ```bash
 cargo build --release
-cp target/release/rmd ~/.local/bin/
+install -Dm755 target/release/rmd ~/.local/bin/rmd
+install -Dm644 extra/rmd.service ~/.config/systemd/user/rmd.service
+systemctl --user daemon-reload
 ```
 
 ## Usage
