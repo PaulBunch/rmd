@@ -19,6 +19,7 @@ notify-rust = "4"
 anyhow = "1.0"
 # Standard system paths (XDG specifications)
 dirs = "6"
+terminal_size = "0.4"
 
 [profile.release]
 opt-level = "z"     # Optimize aggressively for binary size

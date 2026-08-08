@@ -1,3 +1,5 @@
+mod ui;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -13,10 +15,10 @@ use tokio::net::{UnixListener, UnixStream};
 
 /// Structure representing a single reminder
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct Reminder {
-    id: u64,
-    message: String,
-    trigger_at: i64, // Unix timestamp в секундах
+pub struct Reminder {
+    pub id: u64,
+    pub message: String,
+    pub trigger_at: i64, // Unix timestamp in seconds
 }
 
 /// Messages sent from the CLI to the Daemon
@@ -404,19 +406,7 @@ async fn send_request(req: Request) -> Result<()> {
     match response {
         Response::Ok(msg) => println!("✓ {}", msg),
         Response::List(reminders) => {
-            if reminders.is_empty() {
-                println!("ℹ No active reminders");
-            } else {
-                println!("{:<4} {:<18} {}", "ID", "TRIGGER AT", "MESSAGE");
-                println!("{:<4} {:<18} {}", "----", "------------------", "-------");
-                for r in reminders {
-                    // Convert timestamp to a human-readable format
-                    let naive =
-                        chrono::DateTime::from_timestamp(r.trigger_at, 0).unwrap_or_default();
-                    let local_time = naive.format("%Y-%m-%d %H:%M").to_string();
-                    println!("{:<4} {:<18} {}", r.id, local_time, r.message);
-                }
-            }
+            ui::print_reminders_table(&reminders);
         }
         Response::Error(err) => eprintln!("✗ Error: {}", err),
     }
