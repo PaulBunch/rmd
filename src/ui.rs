@@ -1,8 +1,79 @@
 use chrono::Local;
 use terminal_size::{Width, terminal_size};
 
-// Import Reminder struct from main module
 use crate::Reminder;
+
+/// Formats duration in seconds into a compact human-readable string.
+/// Examples: "2y 8mo", "3w 5d", "2h 33m", "1m 54s", "42s"
+fn format_time_left(secs: u64) -> String {
+    if secs == 0 {
+        return "0s".to_string();
+    }
+
+    const SEC_PER_MIN: u64 = 60;
+    const SEC_PER_HOUR: u64 = 3600;
+    const SEC_PER_DAY: u64 = 86400;
+    const SEC_PER_WEEK: u64 = 604800; // 7 days
+    const SEC_PER_MONTH: u64 = 2_592_000; // 30 days
+    const SEC_PER_YEAR: u64 = 31_536_000; // 365 days
+
+    if secs >= SEC_PER_YEAR {
+        let years = secs / SEC_PER_YEAR;
+        let rem = secs % SEC_PER_YEAR;
+        let months = rem / SEC_PER_MONTH;
+        if months > 0 {
+            format!("{}y {}mo", years, months)
+        } else {
+            format!("{}y", years)
+        }
+    } else if secs >= SEC_PER_MONTH {
+        let months = secs / SEC_PER_MONTH;
+        let rem = secs % SEC_PER_MONTH;
+        let weeks = rem / SEC_PER_WEEK;
+        if weeks > 0 {
+            format!("{}mo {}w", months, weeks)
+        } else {
+            format!("{}mo", months)
+        }
+    } else if secs >= SEC_PER_WEEK {
+        let weeks = secs / SEC_PER_WEEK;
+        let rem = secs % SEC_PER_WEEK;
+        let days = rem / SEC_PER_DAY;
+        if days > 0 {
+            format!("{}w {}d", weeks, days)
+        } else {
+            format!("{}w", weeks)
+        }
+    } else if secs >= SEC_PER_DAY {
+        let days = secs / SEC_PER_DAY;
+        let rem = secs % SEC_PER_DAY;
+        let hours = rem / SEC_PER_HOUR;
+        if hours > 0 {
+            format!("{}d {}h", days, hours)
+        } else {
+            format!("{}d", days)
+        }
+    } else if secs >= SEC_PER_HOUR {
+        let hours = secs / SEC_PER_HOUR;
+        let rem = secs % SEC_PER_HOUR;
+        let mins = rem / SEC_PER_MIN;
+        if mins > 0 {
+            format!("{}h {}m", hours, mins)
+        } else {
+            format!("{}h", hours)
+        }
+    } else if secs >= SEC_PER_MIN {
+        let mins = secs / SEC_PER_MIN;
+        let rem = secs % SEC_PER_MIN;
+        if rem > 0 {
+            format!("{}m {}s", mins, rem)
+        } else {
+            format!("{}m", mins)
+        }
+    } else {
+        format!("{}s", secs)
+    }
+}
 
 pub fn print_reminders_table(reminders: &[Reminder]) {
     let count = reminders.len();
@@ -22,35 +93,48 @@ pub fn print_reminders_table(reminders: &[Reminder]) {
         .map(|(Width(w), _)| w as usize)
         .unwrap_or(80);
 
+    let now = Local::now().timestamp();
+
     // Format timestamps and prepare string rows in OS local time
-    let rows: Vec<(String, String, String)> = reminders
+    let rows: Vec<(String, String, String, String)> = reminders
         .iter()
         .map(|r| {
             let local_dt = chrono::DateTime::from_timestamp(r.trigger_at, 0)
                 .map(|dt| dt.with_timezone(&Local))
                 .unwrap_or_default();
             let time_str = local_dt.format("%Y-%m-%d %H:%M").to_string();
-            (r.id.to_string(), time_str, r.message.clone())
+
+            let diff = r.trigger_at.saturating_sub(now);
+            let left_str = format_time_left(if diff > 0 { diff as u64 } else { 0 });
+
+            (r.id.to_string(), time_str, left_str, r.message.clone())
         })
         .collect();
 
-    // 5. Dynamic column width calculation based on content vs header lengths
+    // Dynamic column width calculation based on content vs header lengths
     let id_width = rows
         .iter()
-        .map(|(id, _, _)| id.len())
+        .map(|(id, _, _, _)| id.len())
         .max()
         .unwrap_or(0)
         .max("ID".len());
 
     let time_width = rows
         .iter()
-        .map(|(_, time, _)| time.len())
+        .map(|(_, time, _, _)| time.len())
         .max()
         .unwrap_or(0)
         .max("TIME".len());
 
+    let left_width = rows
+        .iter()
+        .map(|(_, _, left, _)| left.len())
+        .max()
+        .unwrap_or(0)
+        .max("LEFT".len());
+
     let gap = "  "; // 2 spaces gap between columns
-    let prefix_len = id_width + gap.len() + time_width + gap.len();
+    let prefix_len = id_width + gap.len() + time_width + gap.len() + left_width + gap.len();
 
     // Calculate maximum available space for MESSAGE column
     let max_msg_avail = if term_width > prefix_len + 4 {
@@ -61,7 +145,7 @@ pub fn print_reminders_table(reminders: &[Reminder]) {
 
     let msg_width = rows
         .iter()
-        .map(|(_, _, msg)| msg.chars().count())
+        .map(|(_, _, _, msg)| msg.chars().count())
         .max()
         .unwrap_or(0)
         .max("MESSAGE".len())
@@ -70,16 +154,17 @@ pub fn print_reminders_table(reminders: &[Reminder]) {
     // 2. Format headers with ANSI underline on the same line
     let header_id = format!("{:<width$}", "ID", width = id_width);
     let header_time = format!("{:<width$}", "TIME", width = time_width);
+    let header_left = format!("{:<width$}", "LEFT", width = left_width);
     let header_msg = format!("{:<width$}", "MESSAGE", width = msg_width);
 
     println!(
-        "\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m",
-        header_id, gap, header_time, gap, header_msg
+        "\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m",
+        header_id, gap, header_time, gap, header_left, gap, header_msg
     );
 
     // Print data rows with message truncation if exceeding width
-    for (id, time, msg) in rows {
-        // 6. Truncate long messages with '...'
+    for (id, time, left, msg) in rows {
+        // Truncate long messages with '...'
         let truncated_msg = if msg.chars().count() > msg_width {
             if msg_width > 3 {
                 let mut s: String = msg.chars().take(msg_width - 3).collect();
@@ -93,14 +178,17 @@ pub fn print_reminders_table(reminders: &[Reminder]) {
         };
 
         println!(
-            "{:<id_w$}{}{:<time_w$}{}{}",
+            "{:<id_w$}{}{:<time_w$}{}{:<left_w$}{}{}",
             id,
             gap,
             time,
             gap,
+            left,
+            gap,
             truncated_msg,
             id_w = id_width,
-            time_w = time_width
+            time_w = time_width,
+            left_w = left_width
         );
     }
 
