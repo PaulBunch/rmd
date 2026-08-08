@@ -1,0 +1,28 @@
+[package]
+name = "rmd"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+# Serialization (JSON state & IPC protocol)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Command-line argument parsing
+clap = { version = "4", features = ["derive"] }
+# Date & time handling
+chrono = "0.4"
+# Desktop notifications via D-Bus
+notify-rust = "4"
+# Application-level error handling
+anyhow = "1.0"
+# Standard system paths (XDG specifications)
+dirs = "6"
+
+[profile.release]
+opt-level = "z"     # Optimize aggressively for binary size
+lto = true          # Link-Time Optimization across all crates
+codegen-units = 1   # Reduce parallel code generation units for maximum compression
+panic = "abort"     # Disable stack unwinding tables on panic
+strip = true        # Strip debug symbols automatically

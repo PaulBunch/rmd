@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+*.tmp
+
+changes.diff
+/trash
+/docs/temp.md
