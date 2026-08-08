@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
 // =========================================================================
-// DATA MODEL & IPC PROTOCOL
+// DATA MODEL & CONFIG
 // =========================================================================
 
 /// Structure representing a single reminder
@@ -20,6 +20,25 @@ pub struct Reminder {
     pub message: String,
     pub trigger_at: i64, // Unix timestamp in seconds
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeFormat {
+    #[default]
+    Iso, // "2026-08-09 13:45"
+    Human, // " 1:59 Sun 9 Aug"
+}
+
+/// Application configuration structure
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Config {
+    #[serde(default)]
+    pub time_format: TimeFormat,
+}
+
+// =========================================================================
+// IPC PROTOCOL
+// =========================================================================
 
 /// Messages sent from the CLI to the Daemon
 #[derive(Debug, Serialize, Deserialize)]
@@ -57,6 +76,10 @@ struct Cli {
     /// Reminder message
     #[arg(num_args = 1..)]
     message: Option<Vec<String>>,
+
+    /// Set time format and save to config (iso, human)
+    #[arg(long, global = true)]
+    set_time_format: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -76,7 +99,7 @@ enum Commands {
 /// Get the socket path: /run/user/<UID>/rmd.sock or /tmp/rmd.sock
 fn get_socket_path() -> PathBuf {
     dirs::runtime_dir()
-        .unwrap_or_else(|| std::env::temp_dir())
+        .unwrap_or_else(std::env::temp_dir)
         .join("rmd.sock")
 }
 
@@ -93,7 +116,47 @@ fn get_state_path() -> PathBuf {
     path
 }
 
-/// Atomic JSON serialization and disk flush
+/// Get the config file path: ~/.config/rmd/config.json
+fn get_config_path() -> PathBuf {
+    let mut path = dirs::config_dir().unwrap_or_else(|| {
+        dirs::home_dir()
+            .expect("Cannot find home dir")
+            .join(".config")
+    });
+    path.push("rmd");
+    std::fs::create_dir_all(&path).ok();
+    path.push("config.json");
+    path
+}
+
+/// Load configuration from disk or return default
+fn load_config() -> Config {
+    let path = get_config_path();
+    if !path.exists() {
+        return Config::default();
+    }
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|data| serde_json::from_str(&data).ok())
+        .unwrap_or_default()
+}
+
+/// Save configuration to disk atomically
+fn save_config(config: &Config) -> Result<()> {
+    let path = get_config_path();
+    let tmp_path = path.with_extension("json.tmp");
+
+    let data = serde_json::to_string_pretty(config)?;
+    std::fs::write(&tmp_path, data)?;
+
+    let file = std::fs::File::open(&tmp_path)?;
+    file.sync_all()?;
+    std::fs::rename(tmp_path, path)?;
+
+    Ok(())
+}
+
+/// Atomic JSON serialization and disk flush for reminders
 fn save_reminders(reminders: &[Reminder]) -> Result<()> {
     let path = get_state_path();
     let tmp_path = path.with_extension("json.tmp");
@@ -174,20 +237,37 @@ fn parse_time(input: &str) -> Result<i64> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let mut config = load_config();
+
+    // If the flag is passed, update the config and save it immediately
+    if let Some(fmt) = &cli.set_time_format {
+        config.time_format = match fmt.as_str() {
+            "human" => TimeFormat::Human,
+            "iso" => TimeFormat::Iso,
+            _ => {
+                eprintln!("Unknown format '{}'. Using current setting.", fmt);
+                config.time_format.clone()
+            }
+        };
+        save_config(&config)?;
+    }
 
     // Route the logic depending on the arguments passed
     if let Some(cmd) = cli.command {
         match cmd {
             Commands::Daemon => run_daemon().await?,
-            Commands::Ls => send_request(Request::List).await?,
-            Commands::Rm { id } => send_request(Request::Remove { id }).await?,
+            Commands::Ls => send_request(Request::List, &config).await?,
+            Commands::Rm { id } => send_request(Request::Remove { id }, &config).await?,
         }
     } else if let (Some(time), Some(msg)) = (cli.time, cli.message) {
         // If no subcommand is provided but we have time and text (e.g. rmd +5m Hello)
-        send_request(Request::Add {
-            time_spec: time,
-            message: msg.join(" "),
-        })
+        send_request(
+            Request::Add {
+                time_spec: time,
+                message: msg.join(" "),
+            },
+            &config,
+        )
         .await?;
     } else {
         // If no arguments were provided, print the help message
@@ -209,7 +289,6 @@ async fn run_daemon() -> Result<()> {
     }
 
     let listener = UnixListener::bind(&socket_path).context("Failed to bind Unix Domain Socket")?;
-
     let mut reminders = load_reminders();
 
     // 1. Process missed notifications on daemon startup
@@ -240,7 +319,7 @@ async fn run_daemon() -> Result<()> {
                     missed.len()
                 ))
                 .urgency(notify_rust::Urgency::Critical)
-                .timeout(notify_rust::Timeout::Never) // Keep notification visible until dismissed by user
+                .timeout(notify_rust::Timeout::Never)
                 .show();
         }
         let _ = save_reminders(&reminders);
@@ -277,7 +356,7 @@ async fn run_daemon() -> Result<()> {
                             .summary("Reminder")
                             .body(&r.message)
                             .urgency(notify_rust::Urgency::Critical)
-                            .timeout(notify_rust::Timeout::Never) // Keep notification visible until dismissed by user
+                            .timeout(notify_rust::Timeout::Never)
                             .show();
                     } else {
                         remaining.push(r);
@@ -361,7 +440,7 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) {
 // CLIENT (IPC)
 // =========================================================================
 
-async fn send_request(req: Request) -> Result<()> {
+async fn send_request(req: Request, config: &Config) -> Result<()> {
     let socket_path = get_socket_path();
 
     // 1. Attempt to connect to the socket
@@ -409,7 +488,7 @@ async fn send_request(req: Request) -> Result<()> {
     match response {
         Response::Ok(msg) => println!("✓ {}", msg),
         Response::List(reminders) => {
-            ui::print_reminders_table(&reminders);
+            ui::print_reminders_table(&reminders, &config.time_format);
         }
         Response::Error(err) => eprintln!("✗ Error: {}", err),
     }

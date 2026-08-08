@@ -1,7 +1,8 @@
-use chrono::Local;
+use chrono::{Datelike, Local};
 use terminal_size::{Width, terminal_size};
 
 use crate::Reminder;
+use crate::TimeFormat;
 
 /// Formats duration in seconds into a compact human-readable string.
 /// Examples: "2y 8mo", "3w 5d", "2h 33m", "1m 54s", "42s"
@@ -75,7 +76,7 @@ fn format_time_left(secs: u64) -> String {
     }
 }
 
-pub fn print_reminders_table(reminders: &[Reminder]) {
+pub fn print_reminders_table(reminders: &[Reminder], time_format: &TimeFormat) {
     let count = reminders.len();
 
     // 1. Blank line before table
@@ -93,7 +94,8 @@ pub fn print_reminders_table(reminders: &[Reminder]) {
         .map(|(Width(w), _)| w as usize)
         .unwrap_or(80);
 
-    let now = Local::now().timestamp();
+    let now_dt = Local::now();
+    let current_year = now_dt.year();
 
     // Format timestamps and prepare string rows in OS local time
     let rows: Vec<(String, String, String, String)> = reminders
@@ -102,9 +104,24 @@ pub fn print_reminders_table(reminders: &[Reminder]) {
             let local_dt = chrono::DateTime::from_timestamp(r.trigger_at, 0)
                 .map(|dt| dt.with_timezone(&Local))
                 .unwrap_or_default();
-            let time_str = local_dt.format("%Y-%m-%d %H:%M").to_string();
 
-            let diff = r.trigger_at.saturating_sub(now);
+            let time_str = match time_format {
+                TimeFormat::Iso => local_dt.format("%Y-%m-%d %H:%M").to_string(),
+                TimeFormat::Human => {
+                    if local_dt.year() == current_year {
+                        // %k: hours with space ( 0..23)
+                        // %M: minutes with zero
+                        // %a: short day of the week (Sun)
+                        // %e: day with space ( 1..31)
+                        // %b: short month (Aug)
+                        local_dt.format("%k:%M %a %e %b").to_string()
+                    } else {
+                        local_dt.format("%k:%M %a %-d %b %Y").to_string()
+                    }
+                }
+            };
+
+            let diff = r.trigger_at.saturating_sub(now_dt.timestamp());
             let left_str = format_time_left(if diff > 0 { diff as u64 } else { 0 });
 
             (r.id.to_string(), time_str, left_str, r.message.clone())
