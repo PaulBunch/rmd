@@ -73,6 +73,13 @@ rmd 2026-12-01@10:00 VPS domain renewal
 rmd
 # or: rmd ls
 
+# View history (triggered & missed reminders)
+rmd history
+# or: rmd ls --all
+
+# Purge finished and missed reminders
+rmd clean
+
 # Remove a single reminder (prompts for confirmation)
 rmd rm 3
 

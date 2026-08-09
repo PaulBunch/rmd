@@ -2,6 +2,7 @@ mod time;
 mod ui;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -17,12 +18,29 @@ use time::parse_time;
 // DATA MODEL & CONFIG
 // =========================================================================
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Status {
+    Active,
+    Missed,
+    Triggered,
+}
+
+impl Default for Status {
+    fn default() -> Self {
+        Status::Active
+    }
+}
+
 /// Structure representing a single reminder
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Reminder {
     pub id: u64,
     pub message: String,
     pub trigger_at: i64, // Unix timestamp in seconds
+
+    #[serde(default)]
+    pub status: Status,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -48,7 +66,8 @@ pub struct Config {
 #[derive(Debug, Serialize, Deserialize)]
 enum Request {
     Add { time_spec: String, message: String },
-    List,
+    List { all: bool },
+    Clean,
     Remove { ids: Vec<u64> },
     Stop,
 }
@@ -86,8 +105,16 @@ struct Cli {
 enum Commands {
     /// Start the background daemon
     Daemon,
-    /// List active reminders
-    Ls,
+    /// List reminders
+    Ls {
+        /// Show all reminders including past history (triggered and missed)
+        #[arg(short, long)]
+        all: bool,
+    },
+    /// View history of past and missed notifications
+    History,
+    /// Purge finished and missed reminders from state
+    Clean,
     /// Remove reminders by ID
     Rm {
         /// Reminder IDs to delete
@@ -268,10 +295,12 @@ async fn main() -> Result<()> {
     if let Some(cmd) = cli.command {
         match cmd {
             Commands::Daemon => run_daemon().await?,
-            Commands::Ls => send_request(Request::List, &config).await?,
+            Commands::Ls { all } => send_request(Request::List { all }, &config).await?,
+            Commands::History => send_request(Request::List { all: true }, &config).await?,
+            Commands::Clean => send_request(Request::Clean, &config).await?,
             Commands::Rm { ids, yes } => {
-                // 1. Get the current list for ID validation
-                let response = send_ipc(Request::List).await?;
+                // Request the full list (all: true) to validate the ID from the history
+                let response = send_ipc(Request::List { all: true }).await?;
                 let existing_reminders = match response {
                     Response::List(list) => list,
                     Response::Error(err) => {
@@ -344,8 +373,8 @@ async fn main() -> Result<()> {
             Err(e) => eprintln!("✗ Error: {}", e),
         }
     } else if cli.set_time_format.is_none() {
-        // If rmd is invoked without subcommands or positional arguments, list active reminders
-        send_request(Request::List, &config).await?;
+        // Calling `rmd` without arguments by default prints only active
+        send_request(Request::List { all: false }, &config).await?;
     }
 
     Ok(())
@@ -354,6 +383,16 @@ async fn main() -> Result<()> {
 // =========================================================================
 // DAEMON (SERVER)
 // =========================================================================
+
+pub fn sync_on_startup(reminders: &mut [Reminder]) {
+    let now = Utc::now().timestamp();
+
+    for r in reminders.iter_mut() {
+        if r.status == Status::Active && r.trigger_at <= now {
+            r.status = Status::Missed;
+        }
+    }
+}
 
 async fn run_daemon() -> Result<()> {
     let socket_path = get_socket_path();
@@ -371,16 +410,23 @@ async fn run_daemon() -> Result<()> {
     let listener = UnixListener::bind(&socket_path).context("Failed to bind Unix Domain Socket")?;
     let mut reminders = load_reminders();
 
-    // 1. Process missed notifications on daemon startup
-    let now = chrono::Local::now().timestamp();
-    let (missed, active): (Vec<Reminder>, Vec<Reminder>) =
-        reminders.into_iter().partition(|r| r.trigger_at <= now);
+    // Guarantee sorting at startup:
+    reminders.sort_by_key(|r| r.trigger_at);
 
-    reminders = active;
+    // 1. Process missed notifications on daemon startup
+    let now = Utc::now().timestamp();
+    let mut newly_missed = Vec::new();
+
+    for r in reminders.iter_mut() {
+        if r.status == Status::Active && r.trigger_at <= now {
+            r.status = Status::Missed;
+            newly_missed.push(r.clone());
+        }
+    }
 
     let config = load_config();
-    if !missed.is_empty() {
-        let notifications = ui::build_missed_notifications(&missed, &config.time_format);
+    if !newly_missed.is_empty() {
+        let notifications = ui::build_missed_notifications(&newly_missed, &config.time_format);
 
         for n in notifications {
             let _ = notify_rust::Notification::new()
@@ -398,11 +444,16 @@ async fn run_daemon() -> Result<()> {
 
     // 2. Main Event Loop
     loop {
-        let now = chrono::Local::now().timestamp();
-        reminders.sort_by_key(|r| r.trigger_at);
+        let now = Utc::now().timestamp();
 
-        // Calculate sleep duration until the earliest reminder
-        let sleep_duration = if let Some(first) = reminders.first() {
+        // Find the earliest ACTIVE reminder
+        let next_active = reminders
+            .iter()
+            .filter(|r| r.status == Status::Active)
+            .min_by_key(|r| r.trigger_at);
+
+        // Calculate sleep duration only until the earliest Active
+        let sleep_duration = if let Some(first) = next_active {
             let diff = first.trigger_at - now;
             if diff > 0 {
                 Duration::from_secs(diff as u64)
@@ -415,24 +466,27 @@ async fn run_daemon() -> Result<()> {
 
         tokio::select! {
             // Branch 1: Timer tick
-            _ = tokio::time::sleep(sleep_duration), if !reminders.is_empty() => {
-                let now = chrono::Local::now().timestamp();
-                let mut remaining = Vec::new();
+            _ = tokio::time::sleep(sleep_duration) => {
+                let now = Utc::now().timestamp();
+                let mut status_changed = false;
 
-                for r in reminders {
-                    if r.trigger_at <= now {
+                for r in reminders.iter_mut() {
+                    if r.status == Status::Active && r.trigger_at <= now {
+                        r.status = Status::Triggered;
+                        status_changed = true;
+
                         let _ = notify_rust::Notification::new()
                             .summary("Reminder")
                             .body(&r.message)
                             .urgency(notify_rust::Urgency::Critical)
                             .timeout(notify_rust::Timeout::Never)
                             .show();
-                    } else {
-                        remaining.push(r);
                     }
                 }
-                reminders = remaining;
-                let _ = save_reminders(&reminders);
+
+                if status_changed {
+                    let _ = save_reminders(&reminders);
+                }
             }
 
             // Branch 2: Incoming CLI command
@@ -489,8 +543,13 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) ->
                     id,
                     trigger_at,
                     message,
+                    status: Status::Active,
                 };
                 reminders.push(reminder.clone());
+
+                // Sort by trigger time:
+                reminders.sort_by_key(|r| r.trigger_at);
+
                 if let Err(e) = save_reminders(&reminders) {
                     Response::Error(format!("Failed to save state: {}", e))
                 } else {
@@ -499,7 +558,39 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) ->
             }
             Err(e) => Response::Error(format!("Invalid time format: {}", e)),
         },
-        Request::List => Response::List(reminders.clone()),
+        Request::List { all } => {
+            let list = if all {
+                reminders.clone()
+            } else {
+                reminders
+                    .iter()
+                    .filter(|r| r.status == Status::Active)
+                    .cloned()
+                    .collect()
+            };
+            Response::List(list)
+        }
+        Request::Clean => {
+            let mut removed_count = 0;
+
+            // Leave only active reminders
+            reminders.retain(|r| {
+                if r.status != Status::Active {
+                    removed_count += 1;
+                    false
+                } else {
+                    true
+                }
+            });
+
+            if removed_count == 0 {
+                Response::Ok("No history or missed reminders to clean.".to_string())
+            } else if let Err(e) = save_reminders(&reminders) {
+                Response::Error(format!("Failed to save state: {}", e))
+            } else {
+                Response::Ok(format!("Cleaned {} inactive reminder(s).", removed_count))
+            }
+        }
         Request::Remove { ids } => {
             let mut removed = Vec::new();
 

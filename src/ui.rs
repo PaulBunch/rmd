@@ -291,6 +291,7 @@ pub fn build_missed_notifications(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Status;
     use chrono::{Datelike, TimeZone};
 
     #[test]
@@ -351,6 +352,7 @@ mod tests {
             id: 1,
             message: "Single digit test".to_string(),
             trigger_at: dt.timestamp(),
+            status: Status::Missed,
         }];
 
         let notifications = build_missed_notifications(&missed, &TimeFormat::Human);
@@ -370,6 +372,7 @@ mod tests {
             id: 1,
             message: "Buy milk".to_string(),
             trigger_at: 1700000000,
+            status: Status::Missed,
         }];
 
         // Get the expected start date in local time
@@ -393,16 +396,19 @@ mod tests {
                 id: 1,
                 message: "Task 1".into(),
                 trigger_at: 100,
+                status: Status::Missed,
             },
             Reminder {
                 id: 2,
                 message: "Task 2".into(),
                 trigger_at: 100,
+                status: Status::Missed,
             },
             Reminder {
                 id: 3,
                 message: "Task 3".into(),
                 trigger_at: 100,
+                status: Status::Missed,
             },
         ];
 
