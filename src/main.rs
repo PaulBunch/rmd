@@ -67,11 +67,7 @@ enum Response {
 // =========================================================================
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "rmd",
-    version = "0.1",
-    about = "Lightweight persistent reminders"
-)]
+#[command(name = "rmd", version, about = "Lightweight persistent reminders")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
