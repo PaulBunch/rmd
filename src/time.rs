@@ -127,21 +127,29 @@ fn parse_relative_duration(input: &str) -> Result<i64> {
 fn parse_absolute_or_keyword(input: &str, now: DateTime<Local>) -> Result<DateTime<Local>> {
     let s = input.trim();
 
-    // Format: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD HH:MM"
-    if let Ok(ndt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
-        .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M"))
+    // 1. ISO/Compound Full Datetime: "YYYY-MM-DD HH:MM:SS", "YYYY-MM-DDTHH:MM", "YYYY-MM-DD@HH:MM"
+    let s_normalized = if s.len() >= 11 && matches!(s.as_bytes()[10], b'T' | b't' | b'@') {
+        let mut string = s.to_string();
+        string.replace_range(10..11, " ");
+        string
+    } else {
+        s.to_string()
+    };
+
+    if let Ok(ndt) = NaiveDateTime::parse_from_str(&s_normalized, "%Y-%m-%d %H:%M:%S")
+        .or_else(|_| NaiveDateTime::parse_from_str(&s_normalized, "%Y-%m-%d %H:%M"))
     {
         return naive_to_local(&ndt, &now);
     }
 
-    // Format: "YYYY-MM-DD" (defaults to 00:00:00)
+    // 2. Format: "YYYY-MM-DD" (defaults to 00:00:00)
     if let Ok(nd) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
         if let Some(ndt) = nd.and_hms_opt(0, 0, 0) {
             return naive_to_local(&ndt, &now);
         }
     }
 
-    // Format: "HH:MM" or "HH:MM:SS" (time only)
+    // 3. Format: "HH:MM" or "HH:MM:SS" (time only)
     if let Ok(nt) = parse_time_only(s) {
         let today_date = now.date_naive();
         if let Some(today_ndt) = today_date.and_hms_opt(nt.hour(), nt.minute(), nt.second()) {
@@ -163,46 +171,74 @@ fn parse_absolute_or_keyword(input: &str, now: DateTime<Local>) -> Result<DateTi
         }
     }
 
-    // Formats: "tomorrow 15:00", "today 18:30", "mon 09:00", "friday 18:00"
-    let parts: Vec<&str> = s.split_whitespace().collect();
-    if parts.len() == 2 {
-        let kw = parts[0].to_lowercase();
-        let time_str = parts[1];
-        let nt = parse_time_only(time_str)?;
+    // 4. Keyword / Weekday + Time combinations
+    // Supports:
+    // - Spaced: "tomorrow 15:00", "mon 09:00"
+    // - Concatenated: "tomorrow15:00", "mon09:00", "friday18:30"
+    // - Separated by '@': "tomorrow@15:00", "mon@09:00"
+    let keywords = [
+        "wednesday",
+        "thursday",
+        "saturday",
+        "tomorrow",
+        "tuesday",
+        "monday",
+        "friday",
+        "sunday",
+        "today",
+        "wed",
+        "thu",
+        "sat",
+        "tue",
+        "mon",
+        "fri",
+        "sun",
+    ];
 
-        let target_date = match kw.as_str() {
-            "today" => Some(now.date_naive()),
-            "tomorrow" => now.date_naive().succ_opt(),
-            _ => {
-                if let Ok(weekday) = parse_weekday(&kw) {
-                    let current_weekday = now.weekday();
-                    let mut days_ahead = (weekday.num_days_from_monday() + 7
-                        - current_weekday.num_days_from_monday())
-                        % 7;
-                    if days_ahead == 0 {
-                        // Same weekday: check if time has already passed today
-                        if let Some(ndt) =
-                            now.date_naive()
-                                .and_hms_opt(nt.hour(), nt.minute(), nt.second())
-                        {
-                            if let Ok(dt) = naive_to_local(&ndt, &now) {
-                                if dt <= now {
-                                    days_ahead = 7; // Target next week's day
+    let s_lower = s.to_lowercase();
+    for kw in keywords {
+        if s_lower.starts_with(kw) {
+            let rest = &s[kw.len()..];
+            let rest_clean =
+                rest.trim_start_matches(|c: char| c == '@' || c == ':' || c.is_whitespace());
+
+            if let Ok(nt) = parse_time_only(rest_clean) {
+                let target_date = match kw {
+                    "today" => Some(now.date_naive()),
+                    "tomorrow" => now.date_naive().succ_opt(),
+                    _ => {
+                        if let Ok(weekday) = parse_weekday(kw) {
+                            let current_weekday = now.weekday();
+                            let mut days_ahead = (weekday.num_days_from_monday() + 7
+                                - current_weekday.num_days_from_monday())
+                                % 7;
+                            if days_ahead == 0 {
+                                // Same weekday: check if time has already passed today
+                                if let Some(ndt) = now.date_naive().and_hms_opt(
+                                    nt.hour(),
+                                    nt.minute(),
+                                    nt.second(),
+                                ) {
+                                    if let Ok(dt) = naive_to_local(&ndt, &now) {
+                                        if dt <= now {
+                                            days_ahead = 7; // Target next week's day
+                                        }
+                                    }
                                 }
                             }
+                            now.date_naive()
+                                .checked_add_signed(Duration::days(days_ahead as i64))
+                        } else {
+                            None
                         }
                     }
-                    now.date_naive()
-                        .checked_add_signed(Duration::days(days_ahead as i64))
-                } else {
-                    None
-                }
-            }
-        };
+                };
 
-        if let Some(date) = target_date {
-            if let Some(ndt) = date.and_hms_opt(nt.hour(), nt.minute(), nt.second()) {
-                return naive_to_local(&ndt, &now);
+                if let Some(date) = target_date {
+                    if let Some(ndt) = date.and_hms_opt(nt.hour(), nt.minute(), nt.second()) {
+                        return naive_to_local(&ndt, &now);
+                    }
+                }
             }
         }
     }
@@ -300,31 +336,73 @@ mod tests {
     }
 
     #[test]
-    fn test_keywords() {
+    fn test_keywords_and_concatenated() {
         let now = ref_time(); // 2026-08-09 12:00:00 (Sunday)
 
+        // Spaced
         let t_tom = parse_time_relative_to("tomorrow 15:00", now).unwrap();
-        let dt_tom = Local.timestamp_opt(t_tom, 0).unwrap();
         assert_eq!(
-            dt_tom.format("%Y-%m-%d %H:%M:%S").to_string(),
-            "2026-08-10 15:00:00"
+            Local
+                .timestamp_opt(t_tom, 0)
+                .unwrap()
+                .format("%Y-%m-%d %H:%M")
+                .to_string(),
+            "2026-08-10 15:00"
         );
 
-        let t_mon = parse_time_relative_to("mon 09:00", now).unwrap();
-        let dt_mon = Local.timestamp_opt(t_mon, 0).unwrap();
+        // Concatenated
+        let t_tom_cat = parse_time_relative_to("tomorrow15:00", now).unwrap();
+        assert_eq!(t_tom, t_tom_cat);
+
+        // @-separated
+        let t_tom_at = parse_time_relative_to("tomorrow@15:00", now).unwrap();
+        assert_eq!(t_tom, t_tom_at);
+
+        // Weekdays concatenated
+        let t_mon = parse_time_relative_to("mon09:00", now).unwrap();
         assert_eq!(
-            dt_mon.format("%Y-%m-%d %H:%M:%S").to_string(),
-            "2026-08-10 09:00:00"
+            Local
+                .timestamp_opt(t_mon, 0)
+                .unwrap()
+                .format("%Y-%m-%d %H:%M")
+                .to_string(),
+            "2026-08-10 09:00"
+        );
+
+        let t_fri = parse_time_relative_to("friday18:30", now).unwrap();
+        assert_eq!(
+            Local
+                .timestamp_opt(t_fri, 0)
+                .unwrap()
+                .format("%Y-%m-%d %H:%M")
+                .to_string(),
+            "2026-08-14 18:30"
         );
     }
 
     #[test]
-    fn test_full_datetime() {
+    fn test_iso_and_full_datetime() {
         let now = ref_time();
 
-        let t = parse_time_relative_to("2026-08-15 14:00", now).unwrap();
-        let dt = Local.timestamp_opt(t, 0).unwrap();
-        assert_eq!(dt.format("%Y-%m-%d %H:%M").to_string(), "2026-08-15 14:00");
+        // Standard space-separated
+        let t1 = parse_time_relative_to("2026-08-15 14:00", now).unwrap();
+        assert_eq!(
+            Local
+                .timestamp_opt(t1, 0)
+                .unwrap()
+                .format("%Y-%m-%d %H:%M")
+                .to_string(),
+            "2026-08-15 14:00"
+        );
+
+        // ISO with 'T', 't', and '@' separator
+        let t2 = parse_time_relative_to("2026-08-15T14:00", now).unwrap();
+        let t3 = parse_time_relative_to("2026-08-15t14:00:00", now).unwrap();
+        let t4 = parse_time_relative_to("2026-08-15@14:00", now).unwrap();
+
+        assert_eq!(t1, t2);
+        assert_eq!(t1, t3);
+        assert_eq!(t1, t4);
     }
 
     #[test]
