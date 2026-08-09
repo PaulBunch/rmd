@@ -38,7 +38,7 @@
 - [x] Add `Left` time-remaining column with human-readable formatting (`2h 33m`, `1m 54s`, `3w 5d`, `2y 8mo` using `mo` for months to avoid `m`/`M` ambiguity)
 - [x] Clarify the output formatting of the TIME column in the CLI table
 - [x] Refine CLI response formatting
-- [ ] Display a list of reminders for `rmd` command without the flag instead of the current `help`
+- [x] Display a list of reminders for `rmd` command without the flag instead of the current `help`
 - [ ] Refine the summary text and formatting of missed reminders
 - [ ] Add daemon shutdown command (`rmd stop`)
 - [ ] Advanced date & time parsing

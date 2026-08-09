@@ -243,15 +243,24 @@ async fn main() -> Result<()> {
 
     // If the flag is passed, update the config and save it immediately
     if let Some(fmt) = &cli.set_time_format {
-        config.time_format = match fmt.as_str() {
-            "human" => TimeFormat::Human,
-            "iso" => TimeFormat::Iso,
-            _ => {
-                eprintln!("Unknown format '{}'. Using current setting.", fmt);
-                config.time_format.clone()
+        match fmt.as_str() {
+            "human" => {
+                config.time_format = TimeFormat::Human;
+                save_config(&config)?;
+                println!("✓ Time format set to 'human'");
             }
-        };
-        save_config(&config)?;
+            "iso" => {
+                config.time_format = TimeFormat::Iso;
+                save_config(&config)?;
+                println!("✓ Time format set to 'iso'");
+            }
+            _ => {
+                eprintln!(
+                    "✗ Error: Unknown format '{}'. Valid options: human, iso",
+                    fmt
+                );
+            }
+        }
     }
 
     // Route the logic depending on the arguments passed
@@ -271,10 +280,9 @@ async fn main() -> Result<()> {
             &config,
         )
         .await?;
-    } else {
-        // If no arguments were provided, print the help message
-        use clap::CommandFactory;
-        Cli::command().print_help()?;
+    } else if cli.set_time_format.is_none() {
+        // If rmd is invoked without subcommands or positional arguments, list active reminders
+        send_request(Request::List, &config).await?;
     }
 
     Ok(())
