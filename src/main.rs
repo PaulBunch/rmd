@@ -1,3 +1,4 @@
+mod time;
 mod ui;
 
 use anyhow::{Context, Result};
@@ -8,6 +9,8 @@ use std::process::Command;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
+
+use time::parse_time;
 
 // =========================================================================
 // DATA MODEL & CONFIG
@@ -209,52 +212,6 @@ fn load_reminders() -> Vec<Reminder> {
         .ok()
         .and_then(|data| serde_json::from_str(&data).ok())
         .unwrap_or_default()
-}
-
-/// Simple time parser (+5s, +10m, +2h, +1d or HH:MM)
-fn parse_time(input: &str) -> Result<i64> {
-    let now = chrono::Local::now().timestamp();
-
-    if let Some(stripped) = input.strip_prefix('+') {
-        let mut total_sec: i64 = 0;
-        let mut num_str = String::new();
-
-        for ch in stripped.chars() {
-            if ch.is_ascii_digit() {
-                num_str.push(ch);
-            } else {
-                let val: i64 = num_str.parse().context("Invalid number in relative time")?;
-                num_str.clear();
-                match ch {
-                    's' => total_sec += val,
-                    'm' => total_sec += val * 60,
-                    'h' => total_sec += val * 3600,
-                    'd' => total_sec += val * 86400,
-                    _ => anyhow::bail!("Unknown time unit: {}", ch),
-                }
-            }
-        }
-        if total_sec == 0 {
-            anyhow::bail!("Invalid relative time specifier");
-        }
-        Ok(now + total_sec)
-    } else if let Ok(time) = chrono::NaiveTime::parse_from_str(input, "%H:%M") {
-        let today = chrono::Local::now().date_naive();
-        let naive_dt = today.and_time(time);
-        let local_dt = naive_dt
-            .and_local_timezone(chrono::Local)
-            .single()
-            .context("Ambiguous local time")?;
-
-        let mut target = local_dt.timestamp();
-        if target <= now {
-            // If specified time has passed today, schedule for tomorrow
-            target += 86400;
-        }
-        Ok(target)
-    } else {
-        anyhow::bail!("Unsupported time format. Use relative (+5m, +1h) or HH:MM");
-    }
 }
 
 // =========================================================================

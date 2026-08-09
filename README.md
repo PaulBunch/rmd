@@ -9,26 +9,27 @@ Set one-shot reminders that survive reboots and show up as desktop notifications
 ## Features
 
 - Simple CLI: `rmd +25m Tea is ready`
-- Background daemon (auto-started by the CLI if needed)
+- Background daemon (auto-started by CLI or managed via `systemd`)
 - Persistent storage (`~/.local/state/rmd/reminders.json`)
 - Missed reminders handling (grouped notification when the system was offline)
 
 ## Requirements
 
 - Linux
-- A D-Bus notification daemon (e.g., Dunst, Mako, SwayNC, or DE built-in)
+- Rust toolchain (`cargo` 1.90+ to build from source)
+- A D-Bus notification daemon (e.g., Fnott, Mako, Dunst, SwayNC, or DE built-in)
 
 ## Installation
 
 ### Using Makefile (Recommended)
 
-Builds the binary, installs it to `~/.local/bin/`, and sets up the systemd user service:
+Builds the release binary, installs it to `~/.local/bin/`, and sets up the systemd user unit:
 
 ```bash
 make install
 ```
 
-To enable and start the daemon immediately:
+Enable and start the daemon service:
 
 ```bash
 systemctl --user enable --now rmd.service
@@ -52,41 +53,63 @@ systemctl --user daemon-reload
 ## Usage
 
 ```bash
-# Set a reminder (relative or absolute time)
+# Relative time (duration)
 rmd +10m Check the oven
 rmd +1h30m Call mom
+rmd 45s Push the tempo
+
+# Relative days & weekdays
+rmd 'today 18:30' Game over
+rmd 'fri 22:00' Shut up and go to bed
+
+# Absolute time & dates
 rmd 18:30 Evening standup
+rmd '2026-08-10 09:00' Doctor appointment
 
 # List active reminders
-rmd ls
+rmd
+# or: rmd ls
 
 # Remove a reminder by ID
 rmd rm 3
 ```
 
-The daemon starts automatically when needed. You can also run it manually:
+## Daemon Management
+
+The daemon runs in the background, maintaining timers and dispatching notifications.
+
+* **Systemd Service (Recommended):** Enabling `rmd.service` ensures the daemon starts automatically on boot/login, so scheduled reminders fire even if you haven't opened a terminal.
+* **CLI Auto-Start:** If the daemon is not running when you issue any `rmd` command, the CLI will automatically spawn it in the background as a fallback.
+
+To manually run the daemon in the foreground:
 
 ```bash
 rmd daemon
 ```
 
+To view logs when running via systemd:
+
+```bash
+journalctl --user -u rmd.service -f
+```
+
 ## How it works
 
-* CLI talks to a background daemon over a Unix domain socket
-* Daemon keeps reminders in memory and on disk (atomic JSON writes)
-* When a reminder is due, it sends a desktop notification via D-Bus
-* On startup, the daemon processes any missed reminders
+* CLI communicates with the background daemon over a Unix domain socket
+* Daemon retains reminders in memory and persists state to disk (atomic JSON writes)
+* When a reminder triggers, a desktop notification is dispatched via D-Bus
+* On startup, the daemon checks for and handles any missed reminders
 
 ## Configuration & Paths
 
-State is stored at:
+State directory:
 
 ```
 $XDG_STATE_HOME/rmd/reminders.json
 # (falls back to ~/.local/state/rmd/reminders.json)
 ```
 
-Socket location:
+Runtime socket:
 
 ```
 $XDG_RUNTIME_DIR/rmd.sock

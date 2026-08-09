@@ -42,16 +42,18 @@
 - [x] Refine the summary text and formatting of missed reminders
 - [x] Add daemon shutdown command (`rmd stop`)
 - [ ] Advanced date & time parsing
-  - [ ] Support full date-time specifiers (`YYYY-MM-DD HH:MM`, `tomorrow 15:00`, `mon 09:00`)
-  - [ ] Validate targets against past timestamps and reject them with explicit error messages
+  - [x] Support full date-time specifiers (`YYYY-MM-DD HH:MM`, `tomorrow 15:00`, `mon 09:00`)
+  - [x] Validate targets against past timestamps and reject them with explicit error messages
+  - [ ] Add the ability to handle compound date-time values without quotes
 - [ ] Reminder lifecycle & history management
   - [ ] Extend `Reminder` struct with an explicit status enum (`Active`, `Missed`, `Triggered`)
   - [ ] Retain triggered/missed reminders in state instead of instant purging
   - [ ] Implement `rmd clean` command to purge expired/read reminders
   - [ ] Add `rmd ls --all` or `rmd history` view for past notifications
 - [ ] Add output of detailed info about reminder `rmd <ID>` to table (NAME VALUE)
-- [ ] Refactor codebase: split large modules to improve maintainability
+- [ ] Add multiple deletion of reminders by listing IDs separated by spaces
 - [ ] Add confirmation of reminder deletion
+- [ ] Refactor codebase: split large modules to improve maintainability
 
 ## Phase 7: Release & Distribution
 
