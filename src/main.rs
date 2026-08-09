@@ -46,6 +46,7 @@ enum Request {
     Add { time_spec: String, message: String },
     List,
     Remove { id: u64 },
+    Stop,
 }
 
 /// Responses sent from the Daemon to the CLI
@@ -92,6 +93,8 @@ enum Commands {
     Ls,
     /// Remove a reminder by ID
     Rm { id: u64 },
+    /// Stop the daemon
+    Stop,
 }
 
 // =========================================================================
@@ -291,6 +294,7 @@ async fn main() -> Result<()> {
             Commands::Daemon => run_daemon().await?,
             Commands::Ls => send_request(Request::List, &config).await?,
             Commands::Rm { id } => send_request(Request::Remove { id }, &config).await?,
+            Commands::Stop => send_request(Request::Stop, &config).await?,
         }
     } else if let (Some(time), Some(msg)) = (cli.time, cli.message) {
         // If no subcommand is provided but we have time and text (e.g. rmd +5m Hello)
@@ -316,7 +320,14 @@ async fn main() -> Result<()> {
 
 async fn run_daemon() -> Result<()> {
     let socket_path = get_socket_path();
+
     if socket_path.exists() {
+        // Checking if the previous copy of the demon is still alive
+        if UnixStream::connect(&socket_path).await.is_ok() {
+            println!("ℹ Daemon is already running.");
+            return Ok(());
+        }
+        // The socket exists, but no one is responding (stale socket) - safely delete
         let _ = std::fs::remove_file(&socket_path);
     }
 
@@ -390,22 +401,33 @@ async fn run_daemon() -> Result<()> {
             // Branch 2: Incoming CLI command
             accept_res = listener.accept() => {
                 if let Ok((stream, _)) = accept_res {
-                    handle_ipc_client(stream, &mut reminders).await;
+                    let should_stop = handle_ipc_client(stream, &mut reminders).await;
                     let _ = save_reminders(&reminders);
+                    if should_stop {
+                        break;
+                    }
                 }
             }
         }
     }
+
+    if socket_path.exists() {
+        let _ = std::fs::remove_file(&socket_path);
+    }
+    println!("rmd daemon stopped");
+    Ok(())
 }
 
-async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) {
+async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) -> bool {
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
 
     if reader.read_line(&mut line).await.is_err() {
-        return;
+        return false;
     }
+
+    let mut should_stop = false;
 
     let req: Request = match serde_json::from_str(&line) {
         Ok(r) => r,
@@ -414,11 +436,15 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) {
             if let Ok(data) = serde_json::to_string(&resp) {
                 let _ = writer.write_all(format!("{}\n", data).as_bytes()).await;
             }
-            return;
+            return false;
         }
     };
 
     let response = match req {
+        Request::Stop => {
+            should_stop = true;
+            Response::Ok("Stopping rmd daemon...".to_string())
+        }
         Request::Add { time_spec, message } => match parse_time(&time_spec) {
             Ok(trigger_at) => {
                 let id = reminders.iter().map(|r| r.id).max().unwrap_or(0) + 1;
@@ -454,6 +480,8 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) {
     if let Ok(data) = serde_json::to_string(&response) {
         let _ = writer.write_all(format!("{}\n", data).as_bytes()).await;
     }
+
+    should_stop
 }
 
 // =========================================================================
@@ -467,6 +495,11 @@ async fn send_request(req: Request, config: &Config) -> Result<()> {
     let stream = match UnixStream::connect(&socket_path).await {
         Ok(stream) => stream,
         Err(_) => {
+            if matches!(req, Request::Stop) {
+                println!("ℹ Daemon is not running.");
+                return Ok(());
+            }
+
             // If the socket is unavailable, start the daemon in the background
             println!("ℹ Daemon is not running. Starting rmd daemon...");
 

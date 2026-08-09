@@ -40,7 +40,7 @@
 - [x] Refine CLI response formatting
 - [x] Display a list of reminders for `rmd` command without the flag instead of the current `help`
 - [x] Refine the summary text and formatting of missed reminders
-- [ ] Add daemon shutdown command (`rmd stop`)
+- [x] Add daemon shutdown command (`rmd stop`)
 - [ ] Advanced date & time parsing
   - [ ] Support full date-time specifiers (`YYYY-MM-DD HH:MM`, `tomorrow 15:00`, `mon 09:00`)
   - [ ] Validate targets against past timestamps and reject them with explicit error messages
