@@ -308,30 +308,19 @@ async fn run_daemon() -> Result<()> {
 
     reminders = active;
 
+    let config = load_config();
     if !missed.is_empty() {
-        if missed.len() < 3 {
-            for m in &missed {
-                let dt = chrono::DateTime::from_timestamp(m.trigger_at, 0)
-                    .map(|t| t.format("%H:%M").to_string())
-                    .unwrap_or_default();
-                let _ = notify_rust::Notification::new()
-                    .summary("rmd (Missed)")
-                    .body(&format!("[Missed at {}] {}", dt, m.message))
-                    .urgency(notify_rust::Urgency::Critical)
-                    .timeout(notify_rust::Timeout::Never) // Keep notification visible until dismissed by user
-                    .show();
-            }
-        } else {
+        let notifications = ui::build_missed_notifications(&missed, &config.time_format);
+
+        for n in notifications {
             let _ = notify_rust::Notification::new()
-                .summary("rmd")
-                .body(&format!(
-                    "{} missed notifications. Run 'rmd ls' for details.",
-                    missed.len()
-                ))
+                .summary(&n.summary)
+                .body(&n.body)
                 .urgency(notify_rust::Urgency::Critical)
                 .timeout(notify_rust::Timeout::Never)
                 .show();
         }
+
         let _ = save_reminders(&reminders);
     }
 

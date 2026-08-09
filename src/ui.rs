@@ -4,6 +4,12 @@ use terminal_size::{Width, terminal_size};
 use crate::Reminder;
 use crate::TimeFormat;
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct NotificationPayload {
+    pub summary: String,
+    pub body: String,
+}
+
 /// Helper to format a timestamp based on TimeFormat for inline CLI messages
 pub fn format_datetime(timestamp: i64, time_format: &TimeFormat) -> String {
     let local_dt = chrono::DateTime::from_timestamp(timestamp, 0)
@@ -16,6 +22,11 @@ pub fn format_datetime(timestamp: i64, time_format: &TimeFormat) -> String {
         TimeFormat::Iso => local_dt.format("%Y-%m-%d %H:%M").to_string(),
         TimeFormat::Human => {
             let raw = if local_dt.year() == current_year {
+                // %k: hours with space ( 0..23)
+                // %M: minutes with zero
+                // %a: short day of the week (Sun)
+                // %e: day with space ( 1..31)
+                // %b: short month (Aug)
                 local_dt.format("%k:%M %a %e %b").to_string()
             } else {
                 local_dt.format("%k:%M %a %e %b %Y").to_string()
@@ -137,32 +148,12 @@ pub fn print_reminders_table(reminders: &[Reminder], time_format: &TimeFormat) {
         .unwrap_or(80);
 
     let now_dt = Local::now();
-    let current_year = now_dt.year();
 
     // Format timestamps and prepare string rows in OS local time
     let rows: Vec<(String, String, String, String)> = reminders
         .iter()
         .map(|r| {
-            let local_dt = chrono::DateTime::from_timestamp(r.trigger_at, 0)
-                .map(|dt| dt.with_timezone(&Local))
-                .unwrap_or_default();
-
-            let time_str = match time_format {
-                TimeFormat::Iso => local_dt.format("%Y-%m-%d %H:%M").to_string(),
-                TimeFormat::Human => {
-                    if local_dt.year() == current_year {
-                        // %k: hours with space ( 0..23)
-                        // %M: minutes with zero
-                        // %a: short day of the week (Sun)
-                        // %e: day with space ( 1..31)
-                        // %b: short month (Aug)
-                        local_dt.format("%k:%M %a %e %b").to_string()
-                    } else {
-                        local_dt.format("%k:%M %a %-d %b %Y").to_string()
-                    }
-                }
-            };
-
+            let time_str = format_datetime(r.trigger_at, time_format);
             let diff = r.trigger_at.saturating_sub(now_dt.timestamp());
             let left_str = format_time_left(if diff > 0 { diff as u64 } else { 0 });
 
@@ -259,5 +250,92 @@ pub fn print_reminders_table(reminders: &[Reminder], time_format: &TimeFormat) {
         println!("1 reminder");
     } else {
         println!("{} reminders", count);
+    }
+}
+
+/// Formats notifications for missed reminders
+pub fn build_missed_notifications(
+    missed: &[Reminder],
+    fmt: &TimeFormat,
+) -> Vec<NotificationPayload> {
+    if missed.is_empty() {
+        return vec![];
+    }
+
+    if missed.len() < 3 {
+        missed
+            .iter()
+            .map(|m| {
+                let dt = format_datetime(m.trigger_at, fmt);
+                NotificationPayload {
+                    summary: "Missed Reminder".to_string(),
+                    body: format!("{}\n{}", dt, m.message),
+                }
+            })
+            .collect()
+    } else {
+        vec![NotificationPayload {
+            summary: "Missed Reminders".to_string(),
+            body: format!(
+                "{} missed notifications.\nRun 'rmd ls' for details.",
+                missed.len()
+            ),
+        }]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_single_missed_notification_iso() {
+        let missed = vec![Reminder {
+            id: 1,
+            message: "Buy milk".to_string(),
+            trigger_at: 1700000000,
+        }];
+
+        // Get the expected start date in local time
+        let expected_date = chrono::DateTime::from_timestamp(missed[0].trigger_at, 0)
+            .unwrap()
+            .with_timezone(&chrono::Local)
+            .format("%Y-%m-%d")
+            .to_string();
+
+        let notifications = build_missed_notifications(&missed, &TimeFormat::Iso);
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].summary, "Missed Reminder");
+        assert!(notifications[0].body.starts_with(&expected_date));
+        assert!(notifications[0].body.contains("Buy milk"));
+    }
+
+    #[test]
+    fn test_bulk_missed_notifications() {
+        let missed = vec![
+            Reminder {
+                id: 1,
+                message: "Task 1".into(),
+                trigger_at: 100,
+            },
+            Reminder {
+                id: 2,
+                message: "Task 2".into(),
+                trigger_at: 100,
+            },
+            Reminder {
+                id: 3,
+                message: "Task 3".into(),
+                trigger_at: 100,
+            },
+        ];
+
+        let notifications = build_missed_notifications(&missed, &TimeFormat::Human);
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].summary, "Missed Reminders");
+        assert_eq!(
+            notifications[0].body,
+            "3 missed notifications.\nRun 'rmd ls' for details."
+        );
     }
 }

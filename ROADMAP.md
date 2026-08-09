@@ -39,7 +39,7 @@
 - [x] Clarify the output formatting of the TIME column in the CLI table
 - [x] Refine CLI response formatting
 - [x] Display a list of reminders for `rmd` command without the flag instead of the current `help`
-- [ ] Refine the summary text and formatting of missed reminders
+- [x] Refine the summary text and formatting of missed reminders
 - [ ] Add daemon shutdown command (`rmd stop`)
 - [ ] Advanced date & time parsing
   - [ ] Support full date-time specifiers (`YYYY-MM-DD HH:MM`, `tomorrow 15:00`, `mon 09:00`)
