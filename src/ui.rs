@@ -4,6 +4,48 @@ use terminal_size::{Width, terminal_size};
 use crate::Reminder;
 use crate::TimeFormat;
 
+/// Helper to format a timestamp based on TimeFormat for inline CLI messages
+pub fn format_datetime(timestamp: i64, time_format: &TimeFormat) -> String {
+    let local_dt = chrono::DateTime::from_timestamp(timestamp, 0)
+        .map(|dt| dt.with_timezone(&Local))
+        .unwrap_or_default();
+
+    let current_year = Local::now().year();
+
+    match time_format {
+        TimeFormat::Iso => local_dt.format("%Y-%m-%d %H:%M").to_string(),
+        TimeFormat::Human => {
+            let raw = if local_dt.year() == current_year {
+                local_dt.format("%k:%M %a %e %b").to_string()
+            } else {
+                local_dt.format("%k:%M %a %e %b %Y").to_string()
+            };
+            // Clean up extra alignment padding for prose output
+            raw.split_whitespace().collect::<Vec<_>>().join(" ")
+        }
+    }
+}
+
+pub fn format_add_response(reminder: &Reminder, time_format: &TimeFormat) -> String {
+    let time_str = format_datetime(reminder.trigger_at, time_format);
+    let now = Local::now().timestamp();
+    let diff = reminder.trigger_at.saturating_sub(now);
+    let left_str = format_time_left(if diff > 0 { diff as u64 } else { 0 });
+
+    format!(
+        "Added reminder {} in {}: {} — {}",
+        reminder.id, left_str, time_str, reminder.message
+    )
+}
+
+pub fn format_remove_response(reminder: &Reminder, time_format: &TimeFormat) -> String {
+    let time_str = format_datetime(reminder.trigger_at, time_format);
+    format!(
+        "Removed reminder {}: {} — {}",
+        reminder.id, time_str, reminder.message
+    )
+}
+
 /// Formats duration in seconds into a compact human-readable string.
 /// Examples: "2y 8mo", "3w 5d", "2h 33m", "1m 54s", "42s"
 fn format_time_left(secs: u64) -> String {

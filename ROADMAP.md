@@ -37,7 +37,8 @@
 - [x] Make the time display in the table in the OS time zone
 - [x] Add `Left` time-remaining column with human-readable formatting (`2h 33m`, `1m 54s`, `3w 5d`, `2y 8mo` using `mo` for months to avoid `m`/`M` ambiguity)
 - [x] Clarify the output formatting of the TIME column in the CLI table
-- [ ] Refine CLI response formatting
+- [x] Refine CLI response formatting
+- [ ] Display a list of reminders for `rmd` command without the flag instead of the current `help`
 - [ ] Refine the summary text and formatting of missed reminders
 - [ ] Add daemon shutdown command (`rmd stop`)
 - [ ] Advanced date & time parsing
@@ -48,7 +49,9 @@
   - [ ] Retain triggered/missed reminders in state instead of instant purging
   - [ ] Implement `rmd clean` command to purge expired/read reminders
   - [ ] Add `rmd ls --all` or `rmd history` view for past notifications
+- [ ] Add output of detailed info about reminder `rmd <ID>` to table (NAME VALUE)
 - [ ] Refactor codebase: split large modules to improve maintainability
+- [ ] Add confirmation of reminder deletion
 
 ## Phase 7: Release & Distribution
 

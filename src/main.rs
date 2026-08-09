@@ -52,6 +52,8 @@ enum Request {
 #[derive(Debug, Serialize, Deserialize)]
 enum Response {
     Ok(String),
+    Added(Reminder),
+    Removed(Reminder),
     List(Vec<Reminder>),
     Error(String),
 }
@@ -400,33 +402,32 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) {
     let response = match req {
         Request::Add { time_spec, message } => match parse_time(&time_spec) {
             Ok(trigger_at) => {
-                let next_id = reminders.iter().map(|r| r.id).max().unwrap_or(0) + 1;
-                let new_rem = Reminder {
-                    id: next_id,
-                    message,
+                let id = reminders.iter().map(|r| r.id).max().unwrap_or(0) + 1;
+                let reminder = Reminder {
+                    id,
                     trigger_at,
+                    message,
                 };
-                reminders.push(new_rem);
-
-                let left_sec = trigger_at - chrono::Local::now().timestamp();
-                let mins = left_sec / 60;
-                let secs = left_sec % 60;
-
-                Response::Ok(format!(
-                    "Reminder #{} set (in {}m {}s)",
-                    next_id, mins, secs
-                ))
+                reminders.push(reminder.clone());
+                if let Err(e) = save_reminders(&reminders) {
+                    Response::Error(format!("Failed to save state: {}", e))
+                } else {
+                    Response::Added(reminder)
+                }
             }
-            Err(e) => Response::Error(e.to_string()),
+            Err(e) => Response::Error(format!("Invalid time format: {}", e)),
         },
         Request::List => Response::List(reminders.clone()),
         Request::Remove { id } => {
-            let len_before = reminders.len();
-            reminders.retain(|r| r.id != id);
-            if reminders.len() < len_before {
-                Response::Ok(format!("Reminder #{} removed", id))
+            if let Some(pos) = reminders.iter().position(|r| r.id == id) {
+                let removed = reminders.remove(pos);
+                if let Err(e) = save_reminders(&reminders) {
+                    Response::Error(format!("Failed to save state: {}", e))
+                } else {
+                    Response::Removed(removed)
+                }
             } else {
-                Response::Error(format!("Reminder #{} not found", id))
+                Response::Error(format!("Reminder {} not found", id))
             }
         }
     };
@@ -487,6 +488,18 @@ async fn send_request(req: Request, config: &Config) -> Result<()> {
     // 5. Output the response to the user
     match response {
         Response::Ok(msg) => println!("✓ {}", msg),
+        Response::Added(reminder) => {
+            println!(
+                "✓ {}",
+                ui::format_add_response(&reminder, &config.time_format)
+            );
+        }
+        Response::Removed(reminder) => {
+            println!(
+                "✓ {}",
+                ui::format_remove_response(&reminder, &config.time_format)
+            );
+        }
         Response::List(reminders) => {
             ui::print_reminders_table(&reminders, &config.time_format);
         }
