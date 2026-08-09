@@ -48,9 +48,19 @@
   - [ ] Retain triggered/missed reminders in state instead of instant purging
   - [ ] Implement `rmd clean` command to purge expired/read reminders
   - [ ] Add `rmd ls --all` or `rmd history` view for past notifications
+- [ ] Refactor codebase: split large modules to improve maintainability
 
 ## Phase 7: Release & Distribution
 
+- [x] Investigate Termux repository inclusion / packaging
 - [ ] Initial GitHub repository release
 - [ ] Create AUR package for Arch Linux
 - [ ] Submit "Show HN" post on Hacker News
+
+## Phase 8: Termux / Android Support
+
+- [ ] Abstract notification backend logic to allow platform-specific implementations
+- [ ] Implement `termux-notification` backend (via `termux-api` call)
+- [ ] Verify background daemon auto-spawning without systemd reliance
+- [ ] Write `build.sh` package recipe for `termux-packages`
+- [ ] Submit PR to the official `termux/termux-packages` repository
