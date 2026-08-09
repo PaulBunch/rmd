@@ -48,12 +48,12 @@
 - [x] Pull the application version into main.rs from Cargo.toml
 - [x] Add multiple deletion of reminders by listing IDs separated by spaces
 - [x] Add confirmation of reminder deletion
-- [ ] Reminder lifecycle & history management
+- [x] Reminder lifecycle & history management
   - [x] Extend `Reminder` struct with an explicit status enum (`Active`, `Missed`, `Triggered`)
   - [x] Retain triggered/missed reminders in state instead of instant purging
   - [x] Implement `rmd clean` command to purge expired/read reminders
   - [x] Add `rmd ls --all` or `rmd history` view for past notifications
-  - [ ] Add a status column to the history table
+  - [x] Add a status column to the history table
 - [ ] Add output of detailed info about reminder `rmd <ID>` to table (NAME VALUE)
 - [ ] Refactor codebase: split large modules to improve maintainability
 

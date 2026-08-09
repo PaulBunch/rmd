@@ -677,6 +677,9 @@ async fn send_ipc(req: Request) -> Result<Response> {
 }
 
 async fn send_request(req: Request, config: &Config) -> Result<()> {
+    // Determine if the status column is needed before moving `req` to `send_ipc`
+    let show_status = matches!(req, Request::List { all: true });
+
     let response = send_ipc(req).await?;
 
     // 5. Output the response to the user
@@ -697,7 +700,7 @@ async fn send_request(req: Request, config: &Config) -> Result<()> {
             }
         }
         Response::List(reminders) => {
-            ui::print_reminders_table(&reminders, &config.time_format);
+            ui::print_reminders_table(&reminders, &config.time_format, show_status);
         }
         Response::Error(err) => eprintln!("✗ Error: {}", err),
     }
