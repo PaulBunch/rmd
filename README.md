@@ -73,8 +73,14 @@ rmd 2026-12-01@10:00 VPS domain renewal
 rmd
 # or: rmd ls
 
-# Remove a reminder by ID
+# Remove a single reminder (prompts for confirmation)
 rmd rm 3
+
+# Remove multiple reminders at once
+rmd rm 1 2 5
+
+# Skip confirmation prompt (useful for scripts/aliases)
+rmd rm 3 -y
 ```
 
 > **Tip:** Quotes around date/time or message are optional. `rmd tomorrow 15:00 Call mom` and `rmd "tomorrow 15:00" "Call mom"` work identically.

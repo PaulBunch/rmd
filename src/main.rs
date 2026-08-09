@@ -4,6 +4,7 @@ mod ui;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
@@ -48,7 +49,7 @@ pub struct Config {
 enum Request {
     Add { time_spec: String, message: String },
     List,
-    Remove { id: u64 },
+    Remove { ids: Vec<u64> },
     Stop,
 }
 
@@ -57,7 +58,7 @@ enum Request {
 enum Response {
     Ok(String),
     Added(Reminder),
-    Removed(Reminder),
+    Removed(Vec<Reminder>),
     List(Vec<Reminder>),
     Error(String),
 }
@@ -87,8 +88,16 @@ enum Commands {
     Daemon,
     /// List active reminders
     Ls,
-    /// Remove a reminder by ID
-    Rm { id: u64 },
+    /// Remove reminders by ID
+    Rm {
+        /// Reminder IDs to delete
+        #[arg(required = true, num_args = 1..)]
+        ids: Vec<u64>,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
     /// Stop the daemon
     Stop,
 }
@@ -260,7 +269,71 @@ async fn main() -> Result<()> {
         match cmd {
             Commands::Daemon => run_daemon().await?,
             Commands::Ls => send_request(Request::List, &config).await?,
-            Commands::Rm { id } => send_request(Request::Remove { id }, &config).await?,
+            Commands::Rm { ids, yes } => {
+                // 1. Get the current list for ID validation
+                let response = send_ipc(Request::List).await?;
+                let existing_reminders = match response {
+                    Response::List(list) => list,
+                    Response::Error(err) => {
+                        eprintln!("✗ Error: {}", err);
+                        return Ok(());
+                    }
+                    _ => Vec::new(),
+                };
+
+                let existing_ids: std::collections::HashSet<u64> =
+                    existing_reminders.iter().map(|r| r.id).collect();
+
+                let (found_ids, missing_ids): (Vec<u64>, Vec<u64>) =
+                    ids.into_iter().partition(|id| existing_ids.contains(id));
+
+                // 2. Warn about non-existent IDs
+                if !missing_ids.is_empty() {
+                    if missing_ids.len() == 1 {
+                        eprintln!("ℹ Warning: Reminder {} not found", missing_ids[0]);
+                    } else {
+                        let missing_str = missing_ids
+                            .iter()
+                            .map(|id| id.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        eprintln!("ℹ Warning: Reminders [{}] not found", missing_str);
+                    }
+                }
+
+                // If there is nothing to delete, terminate the work without questions.
+                if found_ids.is_empty() {
+                    return Ok(());
+                }
+
+                // 3. Request confirmation ONLY for found IDs
+                if !yes {
+                    let prompt_msg = if found_ids.len() == 1 {
+                        format!("Delete reminder {}? [y/N]: ", found_ids[0])
+                    } else {
+                        let ids_str = found_ids
+                            .iter()
+                            .map(|id| id.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("Delete reminders [{}]? [y/N]: ", ids_str)
+                    };
+
+                    print!("{}", prompt_msg);
+                    std::io::stdout().flush()?;
+
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input)?;
+
+                    let reply = input.trim().to_lowercase();
+                    if reply != "y" && reply != "yes" {
+                        println!("Canceled.");
+                        return Ok(());
+                    }
+                }
+
+                send_request(Request::Remove { ids: found_ids }, &config).await?;
+            }
             Commands::Stop => send_request(Request::Stop, &config).await?,
         }
     } else if !cli.raw_args.is_empty() {
@@ -427,16 +500,25 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) ->
             Err(e) => Response::Error(format!("Invalid time format: {}", e)),
         },
         Request::List => Response::List(reminders.clone()),
-        Request::Remove { id } => {
-            if let Some(pos) = reminders.iter().position(|r| r.id == id) {
-                let removed = reminders.remove(pos);
-                if let Err(e) = save_reminders(&reminders) {
-                    Response::Error(format!("Failed to save state: {}", e))
+        Request::Remove { ids } => {
+            let mut removed = Vec::new();
+
+            // Leave only those whose IDs are NOT included in the list for deletion
+            reminders.retain(|r| {
+                if ids.contains(&r.id) {
+                    removed.push(r.clone());
+                    false
                 } else {
-                    Response::Removed(removed)
+                    true
                 }
+            });
+
+            if removed.is_empty() {
+                Response::Error("No matching reminders found".to_string())
+            } else if let Err(e) = save_reminders(&reminders) {
+                Response::Error(format!("Failed to save state: {}", e))
             } else {
-                Response::Error(format!("Reminder {} not found", id))
+                Response::Removed(removed)
             }
         }
     };
@@ -452,7 +534,7 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) ->
 // CLIENT (IPC)
 // =========================================================================
 
-async fn send_request(req: Request, config: &Config) -> Result<()> {
+async fn send_ipc(req: Request) -> Result<Response> {
     let socket_path = get_socket_path();
 
     // 1. Attempt to connect to the socket
@@ -460,8 +542,7 @@ async fn send_request(req: Request, config: &Config) -> Result<()> {
         Ok(stream) => stream,
         Err(_) => {
             if matches!(req, Request::Stop) {
-                println!("ℹ Daemon is not running.");
-                return Ok(());
+                return Ok(Response::Ok("Daemon is not running.".to_string()));
             }
 
             // If the socket is unavailable, start the daemon in the background
@@ -501,6 +582,12 @@ async fn send_request(req: Request, config: &Config) -> Result<()> {
     let response: Response =
         serde_json::from_str(&line).context("Invalid response format from daemon")?;
 
+    Ok(response)
+}
+
+async fn send_request(req: Request, config: &Config) -> Result<()> {
+    let response = send_ipc(req).await?;
+
     // 5. Output the response to the user
     match response {
         Response::Ok(msg) => println!("✓ {}", msg),
@@ -510,11 +597,13 @@ async fn send_request(req: Request, config: &Config) -> Result<()> {
                 ui::format_add_response(&reminder, &config.time_format)
             );
         }
-        Response::Removed(reminder) => {
-            println!(
-                "✓ {}",
-                ui::format_remove_response(&reminder, &config.time_format)
-            );
+        Response::Removed(removed_list) => {
+            for reminder in removed_list {
+                println!(
+                    "✓ {}",
+                    ui::format_remove_response(&reminder, &config.time_format)
+                );
+            }
         }
         Response::List(reminders) => {
             ui::print_reminders_table(&reminders, &config.time_format);

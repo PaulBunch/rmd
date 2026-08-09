@@ -46,8 +46,8 @@
   - [x] Validate targets against past timestamps and reject them with explicit error messages
   - [x] Add the ability to handle compound date-time values without quotes
 - [x] Pull the application version into main.rs from Cargo.toml
-- [ ] Add multiple deletion of reminders by listing IDs separated by spaces
-- [ ] Add confirmation of reminder deletion
+- [x] Add multiple deletion of reminders by listing IDs separated by spaces
+- [x] Add confirmation of reminder deletion
 - [ ] Reminder lifecycle & history management
   - [ ] Extend `Reminder` struct with an explicit status enum (`Active`, `Missed`, `Triggered`)
   - [ ] Retain triggered/missed reminders in state instead of instant purging
