@@ -77,16 +77,17 @@ rmd
 rmd history
 # or: rmd ls --all
 
+# View detailed information for specific reminder(s)
+rmd 3
+rmd 1 2 5
+# or: rmd info 1 2 5
+
 # Purge finished and missed reminders
 rmd clean
 
-# Remove a single reminder (prompts for confirmation)
+# Remove reminders (supports multiple IDs and auto-confirmation)
 rmd rm 3
-
-# Remove multiple reminders at once
 rmd rm 1 2 5
-
-# Skip confirmation prompt (useful for scripts/aliases)
 rmd rm 3 -y
 ```
 

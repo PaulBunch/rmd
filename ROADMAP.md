@@ -54,7 +54,8 @@
   - [x] Implement `rmd clean` command to purge expired/read reminders
   - [x] Add `rmd ls --all` or `rmd history` view for past notifications
   - [x] Add a status column to the history table
-- [ ] Add output of detailed info about reminder `rmd <ID>` to table (NAME VALUE)
+- [x] Add output of detailed info about reminder `rmd <ID>` to table (NAME VALUE)
+- [ ] Bring order to your ID: new reminders take up free space or recount
 - [ ] Refactor codebase: split large modules to improve maintainability
 
 ## Phase 7: Release & Distribution

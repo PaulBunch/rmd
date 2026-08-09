@@ -19,6 +19,14 @@ pub fn format_status_short(status: &Status) -> &'static str {
     }
 }
 
+pub fn format_status(status: &Status) -> &'static str {
+    match status {
+        Status::Active => "Active",
+        Status::Triggered => "Triggered",
+        Status::Missed => "Missed",
+    }
+}
+
 /// Formats a timestamp for table output (preserves alignment padding)
 pub fn format_datetime(timestamp: i64, time_format: &TimeFormat) -> String {
     let local_dt = chrono::DateTime::from_timestamp(timestamp, 0)
@@ -328,6 +336,96 @@ pub fn print_reminders_table(reminders: &[Reminder], time_format: &TimeFormat, s
     } else {
         println!("{} reminders", count);
     }
+}
+
+/// Prints key-value details for a single reminder formatted like a table
+pub fn print_reminder_info(reminder: &Reminder, time_format: &TimeFormat) {
+    let now = Local::now().timestamp();
+
+    let time_left_str = if reminder.trigger_at > now {
+        let diff = (reminder.trigger_at - now) as u64;
+        format_time_left(diff)
+    } else {
+        let diff = (now - reminder.trigger_at) as u64;
+        format!("Elapsed: {}", format_time_left(diff))
+    };
+
+    let rows: Vec<(&'static str, String)> = vec![
+        ("ID", reminder.id.to_string()),
+        ("Status", format_status(&reminder.status).to_string()),
+        (
+            "Trigger At",
+            format_datetime_prose(reminder.trigger_at, time_format),
+        ),
+        ("Time Left", time_left_str),
+        ("Message", reminder.message.clone()),
+    ];
+
+    // 1. Blank line before table
+    println!();
+
+    let term_width = terminal_size()
+        .map(|(Width(w), _)| w as usize)
+        .unwrap_or(80);
+
+    let name_width = rows
+        .iter()
+        .map(|(n, _)| n.len())
+        .max()
+        .unwrap_or(0)
+        .max("NAME".len());
+
+    let gap = "  "; // 2 spaces gap between columns
+    let prefix_len = name_width + gap.len();
+
+    let max_val_avail = if term_width > prefix_len + 4 {
+        term_width - prefix_len
+    } else {
+        "VALUE".len()
+    };
+
+    let val_width = rows
+        .iter()
+        .map(|(_, v)| v.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max("VALUE".len())
+        .min(max_val_avail);
+
+    // 2. Format headers with ANSI underline
+    let header_name = format!("{:<width$}", "NAME", width = name_width);
+    let header_val = format!("{:<width$}", "VALUE", width = val_width);
+
+    println!(
+        "\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m",
+        header_name, gap, header_val
+    );
+
+    // 3. Print rows
+    for (name, val) in rows {
+        let truncated_val = if val.chars().count() > val_width {
+            if val_width > 3 {
+                let mut s: String = val.chars().take(val_width - 3).collect();
+                s.push_str("...");
+                s
+            } else {
+                val.chars().take(val_width).collect()
+            }
+        } else {
+            val
+        };
+
+        println!(
+            "{:<name_w$}{}{}",
+            name,
+            gap,
+            truncated_val,
+            name_w = name_width
+        );
+    }
+
+    // 4. Blank line after table
+    println!();
 }
 
 /// Formats notifications for missed reminders

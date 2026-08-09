@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
@@ -113,6 +114,12 @@ enum Commands {
     },
     /// View history of past and missed notifications
     History,
+    /// View detailed info for reminder(s)
+    Info {
+        /// Reminder IDs to inspect
+        #[arg(required = true, num_args = 1..)]
+        ids: Vec<u64>,
+    },
     /// Purge finished and missed reminders from state
     Clean,
     /// Remove reminders by ID
@@ -264,6 +271,59 @@ fn parse_time_and_message(args: &[String]) -> Result<(String, String)> {
     anyhow::bail!("Invalid time format in arguments: '{}'", args.join(" "))
 }
 
+/// Handles inspection of specific reminders by ID
+async fn handle_info_command(ids: Vec<u64>, config: &Config) -> Result<()> {
+    let response = send_ipc(Request::List { all: true }).await?;
+    let existing_reminders = match response {
+        Response::List(list) => list,
+        Response::Error(err) => {
+            eprintln!("✗ Error: {}", err);
+            return Ok(());
+        }
+        _ => Vec::new(),
+    };
+
+    let existing_map: HashMap<u64, &Reminder> =
+        existing_reminders.iter().map(|r| (r.id, r)).collect();
+
+    let mut unique_ids = Vec::new();
+    for id in ids {
+        if !unique_ids.contains(&id) {
+            unique_ids.push(id);
+        }
+    }
+
+    let mut found_reminders = Vec::new();
+    let mut missing_ids = Vec::new();
+
+    for id in unique_ids {
+        if let Some(&reminder) = existing_map.get(&id) {
+            found_reminders.push(reminder);
+        } else {
+            missing_ids.push(id);
+        }
+    }
+
+    if !missing_ids.is_empty() {
+        if missing_ids.len() == 1 {
+            eprintln!("ℹ Warning: Reminder {} not found", missing_ids[0]);
+        } else {
+            let missing_str = missing_ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            eprintln!("ℹ Warning: Reminders [{}] not found", missing_str);
+        }
+    }
+
+    for reminder in found_reminders {
+        ui::print_reminder_info(reminder, &config.time_format);
+    }
+
+    Ok(())
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -297,6 +357,7 @@ async fn main() -> Result<()> {
             Commands::Daemon => run_daemon().await?,
             Commands::Ls { all } => send_request(Request::List { all }, &config).await?,
             Commands::History => send_request(Request::List { all: true }, &config).await?,
+            Commands::Info { ids } => handle_info_command(ids, &config).await?,
             Commands::Clean => send_request(Request::Clean, &config).await?,
             Commands::Rm { ids, yes } => {
                 // Request the full list (all: true) to validate the ID from the history
@@ -316,7 +377,7 @@ async fn main() -> Result<()> {
                 let (found_ids, missing_ids): (Vec<u64>, Vec<u64>) =
                     ids.into_iter().partition(|id| existing_ids.contains(id));
 
-                // 2. Warn about non-existent IDs
+                // Warn about non-existent IDs
                 if !missing_ids.is_empty() {
                     if missing_ids.len() == 1 {
                         eprintln!("ℹ Warning: Reminder {} not found", missing_ids[0]);
@@ -330,12 +391,12 @@ async fn main() -> Result<()> {
                     }
                 }
 
-                // If there is nothing to delete, terminate the work without questions.
+                // If there is nothing to delete, terminate without prompt
                 if found_ids.is_empty() {
                     return Ok(());
                 }
 
-                // 3. Request confirmation ONLY for found IDs
+                // Request confirmation ONLY for found IDs
                 if !yes {
                     let prompt_msg = if found_ids.len() == 1 {
                         format!("Delete reminder {}? [y/N]: ", found_ids[0])
@@ -366,14 +427,24 @@ async fn main() -> Result<()> {
             Commands::Stop => send_request(Request::Stop, &config).await?,
         }
     } else if !cli.raw_args.is_empty() {
-        match parse_time_and_message(&cli.raw_args) {
-            Ok((time_spec, message)) => {
-                send_request(Request::Add { time_spec, message }, &config).await?;
+        // Check if raw_args consists solely of numbers (reminder IDs)
+        if let Ok(ids) = cli
+            .raw_args
+            .iter()
+            .map(|s| s.parse::<u64>())
+            .collect::<Result<Vec<u64>, _>>()
+        {
+            handle_info_command(ids, &config).await?;
+        } else {
+            match parse_time_and_message(&cli.raw_args) {
+                Ok((time_spec, message)) => {
+                    send_request(Request::Add { time_spec, message }, &config).await?;
+                }
+                Err(e) => eprintln!("✗ Error: {}", e),
             }
-            Err(e) => eprintln!("✗ Error: {}", e),
         }
     } else if cli.set_time_format.is_none() {
-        // Calling `rmd` without arguments by default prints only active
+        // Calling `rmd` without arguments by default prints active reminders
         send_request(Request::List { all: false }, &config).await?;
     }
 
@@ -398,7 +469,7 @@ async fn run_daemon() -> Result<()> {
     let socket_path = get_socket_path();
 
     if socket_path.exists() {
-        // Checking if the previous copy of the demon is still alive
+        // Checking if the previous copy of the daemon is still alive
         if UnixStream::connect(&socket_path).await.is_ok() {
             println!("ℹ Daemon is already running.");
             return Ok(());
