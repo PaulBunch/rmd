@@ -98,37 +98,59 @@ enum Commands {
 // PATHS & STORAGE HELPERS
 // =========================================================================
 
-/// Get the socket path: /run/user/<UID>/rmd.sock or /tmp/rmd.sock
+/// State directory
+fn get_state_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("RMD_STATE_DIR") {
+        PathBuf::from(path)
+    } else {
+        dirs::state_dir()
+            .unwrap_or_else(|| {
+                dirs::home_dir()
+                    .expect("Cannot find home dir")
+                    .join(".local/state")
+            })
+            .join("rmd")
+    }
+}
+
+/// Configuration directory
+fn get_config_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("RMD_CONFIG_DIR") {
+        PathBuf::from(path)
+    } else {
+        dirs::config_dir()
+            .unwrap_or_else(|| {
+                dirs::home_dir()
+                    .expect("Cannot find home dir")
+                    .join(".config")
+            })
+            .join("rmd")
+    }
+}
+
+/// Get the socket path: $RMD_SOCKET_PATH -> /run/user/<UID>/rmd.sock -> /tmp/rmd.sock
 fn get_socket_path() -> PathBuf {
-    dirs::runtime_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("rmd.sock")
+    if let Ok(path) = std::env::var("RMD_SOCKET_PATH") {
+        PathBuf::from(path)
+    } else {
+        dirs::runtime_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("rmd.sock")
+    }
 }
 
-/// Get the state file path: ~/.local/state/rmd/reminders.json
+/// Get the state file path: $RMD_STATE_DIR/reminders.json or ~/.local/state/rmd/reminders.json
 fn get_state_path() -> PathBuf {
-    let mut path = dirs::state_dir().unwrap_or_else(|| {
-        dirs::home_dir()
-            .expect("Cannot find home dir")
-            .join(".local/state")
-    });
-    path.push("rmd");
-    std::fs::create_dir_all(&path).ok();
-    path.push("reminders.json");
-    path
+    let dir = get_state_dir();
+    std::fs::create_dir_all(&dir).ok();
+    dir.join("reminders.json")
 }
 
-/// Get the config file path: ~/.config/rmd/config.json
+/// Get the config file path: $RMD_CONFIG_DIR/config.json or ~/.config/rmd/config.json
 fn get_config_path() -> PathBuf {
-    let mut path = dirs::config_dir().unwrap_or_else(|| {
-        dirs::home_dir()
-            .expect("Cannot find home dir")
-            .join(".config")
-    });
-    path.push("rmd");
-    std::fs::create_dir_all(&path).ok();
-    path.push("config.json");
-    path
+    let dir = get_config_dir();
+    std::fs::create_dir_all(&dir).ok();
+    dir.join("config.json")
 }
 
 /// Load configuration from disk or return default
