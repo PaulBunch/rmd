@@ -10,7 +10,7 @@ pub struct NotificationPayload {
     pub body: String,
 }
 
-/// Helper to format a timestamp based on TimeFormat for inline CLI messages
+/// Formats a timestamp for table output (preserves alignment padding)
 pub fn format_datetime(timestamp: i64, time_format: &TimeFormat) -> String {
     let local_dt = chrono::DateTime::from_timestamp(timestamp, 0)
         .map(|dt| dt.with_timezone(&Local))
@@ -21,7 +21,7 @@ pub fn format_datetime(timestamp: i64, time_format: &TimeFormat) -> String {
     match time_format {
         TimeFormat::Iso => local_dt.format("%Y-%m-%d %H:%M").to_string(),
         TimeFormat::Human => {
-            let raw = if local_dt.year() == current_year {
+            if local_dt.year() == current_year {
                 // %k: hours with space ( 0..23)
                 // %M: minutes with zero
                 // %a: short day of the week (Sun)
@@ -30,15 +30,19 @@ pub fn format_datetime(timestamp: i64, time_format: &TimeFormat) -> String {
                 local_dt.format("%k:%M %a %e %b").to_string()
             } else {
                 local_dt.format("%k:%M %a %e %b %Y").to_string()
-            };
-            // Clean up extra alignment padding for prose output
-            raw.split_whitespace().collect::<Vec<_>>().join(" ")
+            }
         }
     }
 }
 
+/// Formats a timestamp for prose/inline CLI messages (collapses extra spacing)
+pub fn format_datetime_prose(timestamp: i64, time_format: &TimeFormat) -> String {
+    let raw = format_datetime(timestamp, time_format);
+    raw.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 pub fn format_add_response(reminder: &Reminder, time_format: &TimeFormat) -> String {
-    let time_str = format_datetime(reminder.trigger_at, time_format);
+    let time_str = format_datetime_prose(reminder.trigger_at, time_format);
     let now = Local::now().timestamp();
     let diff = reminder.trigger_at.saturating_sub(now);
     let left_str = format_time_left(if diff > 0 { diff as u64 } else { 0 });
@@ -50,7 +54,7 @@ pub fn format_add_response(reminder: &Reminder, time_format: &TimeFormat) -> Str
 }
 
 pub fn format_remove_response(reminder: &Reminder, time_format: &TimeFormat) -> String {
-    let time_str = format_datetime(reminder.trigger_at, time_format);
+    let time_str = format_datetime_prose(reminder.trigger_at, time_format);
     format!(
         "Removed reminder {}: {} — {}",
         reminder.id, time_str, reminder.message
@@ -266,7 +270,7 @@ pub fn build_missed_notifications(
         missed
             .iter()
             .map(|m| {
-                let dt = format_datetime(m.trigger_at, fmt);
+                let dt = format_datetime_prose(m.trigger_at, fmt);
                 NotificationPayload {
                     summary: "Missed Reminder".to_string(),
                     body: format!("{}\n{}", dt, m.message),
@@ -287,6 +291,78 @@ pub fn build_missed_notifications(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{Datelike, TimeZone};
+
+    #[test]
+    fn test_format_datetime_table_preserves_padding() {
+        // Construct a fixed timestamp: 04:01 AM, Aug 9
+        // Single digit hour (4) and single digit day (9) trigger %k and %e padding
+        let current_year = Local::now().year();
+        // We use the current system year so that the test does not depend on the calendar year
+        let dt = Local
+            .with_ymd_and_hms(current_year, 8, 9, 4, 1, 0)
+            .single()
+            .unwrap();
+        let ts = dt.timestamp();
+
+        let table_formatted = format_datetime(ts, &TimeFormat::Human);
+
+        // Should contain leading space for 4:01 and double space before 9
+        assert_eq!(table_formatted, " 4:01 Sun  9 Aug");
+    }
+
+    #[test]
+    fn test_format_datetime_prose_strips_padding() {
+        let current_year = Local::now().year();
+        let dt = Local
+            .with_ymd_and_hms(current_year, 8, 9, 4, 1, 0)
+            .single()
+            .unwrap();
+        let ts = dt.timestamp();
+
+        let prose_formatted = format_datetime_prose(ts, &TimeFormat::Human);
+
+        // Cleaned up for inline message
+        assert_eq!(prose_formatted, "4:01 Sun 9 Aug");
+    }
+
+    #[test]
+    fn test_format_datetime_different_year_includes_year() {
+        let past_year = Local::now().year() - 1;
+        let dt = Local
+            .with_ymd_and_hms(past_year, 8, 9, 4, 1, 0)
+            .single()
+            .unwrap();
+        let ts = dt.timestamp();
+
+        let formatted = format_datetime_prose(ts, &TimeFormat::Human);
+
+        assert_eq!(formatted, format!("4:01 Sat 9 Aug {}", past_year));
+    }
+
+    #[test]
+    fn test_missed_notification_uses_prose_formatting() {
+        let current_year = Local::now().year();
+        let dt = Local
+            .with_ymd_and_hms(current_year, 8, 9, 4, 1, 0)
+            .single()
+            .unwrap();
+        let missed = vec![Reminder {
+            id: 1,
+            message: "Single digit test".to_string(),
+            trigger_at: dt.timestamp(),
+        }];
+
+        let notifications = build_missed_notifications(&missed, &TimeFormat::Human);
+        assert_eq!(notifications.len(), 1);
+
+        // Verify body starts with trimmed time "4:01 Sun 9 Aug" without leading space
+        assert!(
+            notifications[0].body.starts_with("4:01 Sun 9 Aug"),
+            "Expected body to start with trimmed datetime, got: {}",
+            notifications[0].body
+        );
+    }
 
     #[test]
     fn test_single_missed_notification_iso() {
