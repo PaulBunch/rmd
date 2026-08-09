@@ -1,7 +1,7 @@
 [Unit]
 Description=rmd - Lightweight Reminder Daemon
 After=graphical-session.target
-Wants=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
