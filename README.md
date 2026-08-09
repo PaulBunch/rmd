@@ -53,18 +53,21 @@ systemctl --user daemon-reload
 ## Usage
 
 ```bash
-# Relative time (duration)
-rmd +10m Check the oven
-rmd +1h30m Call mom
+# Relative duration (+ prefix optional, spaces allowed)
 rmd 45s Push the tempo
+rmd +10m Check the oven
+rmd 1h 30m Call mom
 
-# Relative days & weekdays
-rmd 'today 18:30' Game over
-rmd 'fri 22:00' Shut up and go to bed
+# Relative days & weekdays (spaced or git-style @)
+rmd today 18:30 Game over
+rmd tomorrow 15:00 Join release call
+rmd tomorrow@10:00 Standup meeting
+rmd fri 22:00 Shut up and go to bed
 
-# Absolute time & dates
+# Absolute time & ISO / full dates
 rmd 18:30 Evening standup
-rmd '2026-08-10 09:00' Doctor appointment
+rmd 2026-08-10 09:00 Doctor appointment
+rmd 2026-12-01@10:00 VPS domain renewal
 
 # List active reminders
 rmd
@@ -73,6 +76,8 @@ rmd
 # Remove a reminder by ID
 rmd rm 3
 ```
+
+> **Tip:** Quotes around date/time or message are optional. `rmd tomorrow 15:00 Call mom` and `rmd "tomorrow 15:00" "Call mom"` work identically.
 
 ## Daemon Management
 

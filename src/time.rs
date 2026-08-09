@@ -378,6 +378,10 @@ mod tests {
                 .to_string(),
             "2026-08-14 18:30"
         );
+
+        // Spaced relative time
+        let t_multi = parse_time_relative_to("2h 30m", now).unwrap();
+        assert_eq!(t_multi, now.timestamp() + 9000);
     }
 
     #[test]

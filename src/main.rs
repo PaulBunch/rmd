@@ -76,12 +76,9 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 
-    /// Time specification (e.g. +5m, 14:30)
-    time: Option<String>,
-
-    /// Reminder message
+    /// Time specification and message as positional arguments
     #[arg(num_args = 1..)]
-    message: Option<Vec<String>>,
+    raw_args: Vec<String>,
 
     /// Set time format and save to config (iso, human)
     #[arg(long, global = true)]
@@ -218,6 +215,23 @@ fn load_reminders() -> Vec<Reminder> {
 // MAIN & ROUTING
 // =========================================================================
 
+/// Separates time specification and reminder message from raw positional arguments
+fn parse_time_and_message(args: &[String]) -> Result<(String, String)> {
+    // Iterate backwards from full length down to 1 token to find the longest valid time spec
+    for i in (1..=args.len()).rev() {
+        let candidate_time = args[..i].join(" ");
+        if parse_time(&candidate_time).is_ok() {
+            let message = args[i..].join(" ");
+            if message.trim().is_empty() {
+                anyhow::bail!("Reminder message cannot be empty");
+            }
+            return Ok((candidate_time, message));
+        }
+    }
+
+    anyhow::bail!("Invalid time format in arguments: '{}'", args.join(" "))
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -253,16 +267,13 @@ async fn main() -> Result<()> {
             Commands::Rm { id } => send_request(Request::Remove { id }, &config).await?,
             Commands::Stop => send_request(Request::Stop, &config).await?,
         }
-    } else if let (Some(time), Some(msg)) = (cli.time, cli.message) {
-        // If no subcommand is provided but we have time and text (e.g. rmd +5m Hello)
-        send_request(
-            Request::Add {
-                time_spec: time,
-                message: msg.join(" "),
-            },
-            &config,
-        )
-        .await?;
+    } else if !cli.raw_args.is_empty() {
+        match parse_time_and_message(&cli.raw_args) {
+            Ok((time_spec, message)) => {
+                send_request(Request::Add { time_spec, message }, &config).await?;
+            }
+            Err(e) => eprintln!("✗ Error: {}", e),
+        }
     } else if cli.set_time_format.is_none() {
         // If rmd is invoked without subcommands or positional arguments, list active reminders
         send_request(Request::List, &config).await?;
@@ -516,4 +527,53 @@ async fn send_request(req: Request, config: &Config) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn to_vec(args: impl IntoIterator<Item = impl Into<String>>) -> Vec<String> {
+        args.into_iter().map(Into::into).collect()
+    }
+
+    #[test]
+    fn test_parse_simple_time_and_message() {
+        let args = to_vec(["+5m", "Buy", "milk"]);
+        let (time_spec, msg) = parse_time_and_message(&args).unwrap();
+        assert_eq!(time_spec, "+5m");
+        assert_eq!(msg, "Buy milk");
+    }
+
+    #[test]
+    fn test_parse_spaced_keyword_date_and_time() {
+        let args = to_vec(["tomorrow", "15:00", "Call", "mom"]);
+        let (time_spec, msg) = parse_time_and_message(&args).unwrap();
+        assert_eq!(time_spec, "tomorrow 15:00");
+        assert_eq!(msg, "Call mom");
+    }
+
+    #[test]
+    fn test_parse_multi_part_relative_time() {
+        let args = to_vec(["2h", "30m", "Check", "the", "oven"]);
+        let (time_spec, msg) = parse_time_and_message(&args).unwrap();
+        assert_eq!(time_spec, "2h 30m");
+        assert_eq!(msg, "Check the oven");
+    }
+
+    #[test]
+    fn test_reject_empty_message() {
+        let args = to_vec(["+10m"]);
+        let res = parse_time_and_message(&args);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("cannot be empty"));
+    }
+
+    #[test]
+    fn test_reject_invalid_time() {
+        let args = to_vec(["invalid", "time", "argument"]);
+        let res = parse_time_and_message(&args);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("Invalid time format"));
+    }
 }
