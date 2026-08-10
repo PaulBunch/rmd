@@ -462,6 +462,7 @@ pub fn build_missed_notifications(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ReminderId;
     use crate::Status;
     use chrono::{Datelike, TimeZone};
 
@@ -520,7 +521,7 @@ mod tests {
             .single()
             .unwrap();
         let missed = vec![Reminder {
-            id: 1,
+            id: ReminderId::History(1),
             message: "Single digit test".to_string(),
             trigger_at: dt.timestamp(),
             status: Status::Missed,
@@ -540,7 +541,7 @@ mod tests {
     #[test]
     fn test_single_missed_notification_iso() {
         let missed = vec![Reminder {
-            id: 1,
+            id: ReminderId::History(1),
             message: "Buy milk".to_string(),
             trigger_at: 1700000000,
             status: Status::Missed,
@@ -564,19 +565,19 @@ mod tests {
     fn test_bulk_missed_notifications() {
         let missed = vec![
             Reminder {
-                id: 1,
+                id: ReminderId::History(1),
                 message: "Task 1".into(),
                 trigger_at: 100,
                 status: Status::Missed,
             },
             Reminder {
-                id: 2,
+                id: ReminderId::History(2),
                 message: "Task 2".into(),
                 trigger_at: 100,
                 status: Status::Missed,
             },
             Reminder {
-                id: 3,
+                id: ReminderId::History(3),
                 message: "Task 3".into(),
                 trigger_at: 100,
                 status: Status::Missed,

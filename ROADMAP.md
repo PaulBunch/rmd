@@ -55,8 +55,15 @@
   - [x] Add `rmd ls --all` or `rmd history` view for past notifications
   - [x] Add a status column to the history table
 - [x] Add output of detailed info about reminder `rmd <ID>` to table (NAME VALUE)
-- [ ] Bring order to your ID: new reminders take up free space or recount
+- [x] Recycle IDs: assign lowest available integer to new reminders
 - [ ] Refactor codebase: split large modules to improve maintainability
+- [ ] Implement CLI workflow for listing reminders:
+  - `rmd` / `rmd ls [n]`: Display nearest active reminders (default: top N from config; specifying `[n]` updates the default N in the config file. To view a custom number of reminders without modifying the config, use `rmd act [n]`)
+  - `rmd act [n]` / `rmd ls act [n]` (aliases: `active`, `all`): Display active reminders (all by default, or top `[n]`)
+  - `rmd history [n]` / `rmd ls history [n]`: Display processed reminders (`Missed` + `Triggered`; all by default, or `[n]` most recent)
+  - `rmd msd [n]` / `rmd ls msd [n]` (alias: `missed`): Display `Missed` reminders (all by default, or `[n]` most recent)
+  - `rmd trg [n]` / `rmd ls trg [n]` (alias: `triggered`): Display `Triggered` reminders (all by default, or `[n]` most recent)
+  - `rmd log [n]` / `rmd ls log [n]` (alias: `everything`): Display all reminders across all statuses in chronological order (all by default, or `[n]` most recent)
 
 ## Phase 7: Release & Distribution
 

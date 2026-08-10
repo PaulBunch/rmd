@@ -1,14 +1,18 @@
+mod id_tests;
 mod time;
 mod ui;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use serde::{Deserialize, Serialize};
+use serde::de;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
+use std::fmt;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
+use std::str::FromStr;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
@@ -18,6 +22,135 @@ use time::parse_time;
 // =========================================================================
 // DATA MODEL & CONFIG
 // =========================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReminderId {
+    Active(u64),
+    History(u64),
+}
+
+impl fmt::Display for ReminderId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReminderId::Active(id) => write!(f, "{}", id),
+            ReminderId::History(id) => write!(f, "h{}", id),
+        }
+    }
+}
+
+// Static parse error (0 bytes in memory, no allocations)
+#[derive(Debug, Clone, Copy)]
+pub struct ParseReminderIdError;
+
+impl fmt::Display for ParseReminderIdError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Invalid ID format. Use '1' for active or 'h1' for history"
+        )
+    }
+}
+impl std::error::Error for ParseReminderIdError {}
+
+impl FromStr for ReminderId {
+    type Err = ParseReminderIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if let Some(stripped) = s.strip_prefix('h').or_else(|| s.strip_prefix('H')) {
+            let num = stripped.parse::<u64>().map_err(|_| ParseReminderIdError)?;
+            if num == 0 {
+                return Err(ParseReminderIdError);
+            }
+            Ok(ReminderId::History(num))
+        } else {
+            let num = s.parse::<u64>().map_err(|_| ParseReminderIdError)?;
+            if num == 0 {
+                return Err(ParseReminderIdError);
+            }
+            Ok(ReminderId::Active(num))
+        }
+    }
+}
+
+impl Serialize for ReminderId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            ReminderId::Active(id) => serializer.serialize_u64(*id),
+            ReminderId::History(id) => serializer.serialize_str(&format!("h{}", id)),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ReminderId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ReminderIdVisitor;
+        impl<'de> de::Visitor<'de> for ReminderIdVisitor {
+            type Value = ReminderId;
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an integer or 'h'-prefixed string")
+            }
+            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                if value == 0 {
+                    return Err(de::Error::custom("ID cannot be 0"));
+                }
+                Ok(ReminderId::Active(value))
+            }
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                ReminderId::from_str(value).map_err(de::Error::custom)
+            }
+        }
+        deserializer.deserialize_any(ReminderIdVisitor)
+    }
+}
+
+pub struct IdAllocator {
+    used: Vec<bool>,
+}
+
+impl IdAllocator {
+    pub fn new(reminders: &[Reminder], is_history: bool) -> Self {
+        let mut max_id = 0;
+        // 1. Find the maximum ID used (O(N))
+        for r in reminders {
+            match (is_history, r.id) {
+                (false, ReminderId::Active(id)) => max_id = max_id.max(id as usize),
+                (true, ReminderId::History(id)) => max_id = max_id.max(id as usize),
+                _ => {}
+            }
+        }
+
+        // 2. Create a bitmap and mark occupied slots (O(N), one allocation)
+        let mut used = vec![false; max_id + 1];
+        used[0] = true; // Zero ID is forbidden
+        for r in reminders {
+            match (is_history, r.id) {
+                (false, ReminderId::Active(id)) => used[id as usize] = true,
+                (true, ReminderId::History(id)) => used[id as usize] = true,
+                _ => {}
+            }
+        }
+        Self { used }
+    }
+
+    pub fn next_id(&mut self) -> u64 {
+        // Find the first `false` (O(N) worst case, but amortized O(1))
+        for (i, &is_used) in self.used.iter().enumerate().skip(1) {
+            if !is_used {
+                self.used[i] = true;
+                return i as u64;
+            }
+        }
+        self.used.push(true);
+        (self.used.len() - 1) as u64
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,7 +169,7 @@ impl Default for Status {
 /// Structure representing a single reminder
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Reminder {
-    pub id: u64,
+    pub id: ReminderId,
     pub message: String,
     pub trigger_at: i64, // Unix timestamp in seconds
 
@@ -69,7 +202,7 @@ enum Request {
     Add { time_spec: String, message: String },
     List { all: bool },
     Clean,
-    Remove { ids: Vec<u64> },
+    Remove { ids: Vec<ReminderId> },
     Stop,
 }
 
@@ -118,7 +251,7 @@ enum Commands {
     Info {
         /// Reminder IDs to inspect
         #[arg(required = true, num_args = 1..)]
-        ids: Vec<u64>,
+        ids: Vec<ReminderId>,
     },
     /// Purge finished and missed reminders from state
     Clean,
@@ -126,7 +259,7 @@ enum Commands {
     Rm {
         /// Reminder IDs to delete
         #[arg(required = true, num_args = 1..)]
-        ids: Vec<u64>,
+        ids: Vec<ReminderId>,
 
         /// Skip confirmation prompt
         #[arg(short, long)]
@@ -272,7 +405,7 @@ fn parse_time_and_message(args: &[String]) -> Result<(String, String)> {
 }
 
 /// Handles inspection of specific reminders by ID
-async fn handle_info_command(ids: Vec<u64>, config: &Config) -> Result<()> {
+async fn handle_info_command(ids: Vec<ReminderId>, config: &Config) -> Result<()> {
     let response = send_ipc(Request::List { all: true }).await?;
     let existing_reminders = match response {
         Response::List(list) => list,
@@ -283,7 +416,7 @@ async fn handle_info_command(ids: Vec<u64>, config: &Config) -> Result<()> {
         _ => Vec::new(),
     };
 
-    let existing_map: HashMap<u64, &Reminder> =
+    let existing_map: HashMap<ReminderId, &Reminder> =
         existing_reminders.iter().map(|r| (r.id, r)).collect();
 
     let mut unique_ids = Vec::new();
@@ -371,10 +504,10 @@ async fn main() -> Result<()> {
                     _ => Vec::new(),
                 };
 
-                let existing_ids: std::collections::HashSet<u64> =
+                let existing_ids: std::collections::HashSet<ReminderId> =
                     existing_reminders.iter().map(|r| r.id).collect();
 
-                let (found_ids, missing_ids): (Vec<u64>, Vec<u64>) =
+                let (found_ids, missing_ids): (Vec<ReminderId>, Vec<ReminderId>) =
                     ids.into_iter().partition(|id| existing_ids.contains(id));
 
                 // Warn about non-existent IDs
@@ -431,8 +564,8 @@ async fn main() -> Result<()> {
         if let Ok(ids) = cli
             .raw_args
             .iter()
-            .map(|s| s.parse::<u64>())
-            .collect::<Result<Vec<u64>, _>>()
+            .map(|s| s.parse::<ReminderId>())
+            .collect::<Result<Vec<ReminderId>, _>>()
         {
             handle_info_command(ids, &config).await?;
         } else {
@@ -457,10 +590,12 @@ async fn main() -> Result<()> {
 
 pub fn sync_on_startup(reminders: &mut [Reminder]) {
     let now = Utc::now().timestamp();
+    let mut history_alloc = IdAllocator::new(reminders, true);
 
     for r in reminders.iter_mut() {
         if r.status == Status::Active && r.trigger_at <= now {
             r.status = Status::Missed;
+            r.id = ReminderId::History(history_alloc.next_id()); // <- Go to history
         }
     }
 }
@@ -541,9 +676,13 @@ async fn run_daemon() -> Result<()> {
                 let now = Utc::now().timestamp();
                 let mut status_changed = false;
 
+                // Initialize the historical ID allocator before the loop
+                let mut history_alloc = IdAllocator::new(&reminders, true);
+
                 for r in reminders.iter_mut() {
                     if r.status == Status::Active && r.trigger_at <= now {
                         r.status = Status::Triggered;
+                        r.id = ReminderId::History(history_alloc.next_id()); // <- Go to history
                         status_changed = true;
 
                         let _ = notify_rust::Notification::new()
@@ -609,7 +748,8 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) ->
         }
         Request::Add { time_spec, message } => match parse_time(&time_spec) {
             Ok(trigger_at) => {
-                let id = reminders.iter().map(|r| r.id).max().unwrap_or(0) + 1;
+                let mut alloc = IdAllocator::new(reminders, false);
+                let id = ReminderId::Active(alloc.next_id());
                 let reminder = Reminder {
                     id,
                     trigger_at,
@@ -778,6 +918,10 @@ async fn send_request(req: Request, config: &Config) -> Result<()> {
 
     Ok(())
 }
+
+// =========================================================================
+// TESTS
+// =========================================================================
 
 #[cfg(test)]
 mod tests {
