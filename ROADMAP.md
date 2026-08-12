@@ -57,8 +57,12 @@
 - [x] Add output of detailed info about reminder `rmd <ID>` to table (NAME VALUE)
 - [x] Recycle IDs: assign lowest available integer to new reminders
 - [ ] Refactor codebase: split large modules to improve maintainability
+  - [x] Refactor `main.rs`
+  - [ ] Refactor `ui.rs`
+  - [ ] Refactor `time.rs`
 - [ ] Implement CLI workflow for listing reminders:
-  - `rmd` / `rmd ls [n]`: Display nearest active reminders (default: top N from config; specifying `[n]` updates the default N in the config file. To view a custom number of reminders without modifying the config, use `rmd act [n]`)
+  - Add `--set-limit <N>` global flag to update the default active reminders limit in `config.json`
+  - `rmd` / `rmd ls`: Display nearest active reminders (top N from config by default, or top `[n]`)
   - `rmd act [n]` / `rmd ls act [n]` (aliases: `active`, `all`): Display active reminders (all by default, or top `[n]`)
   - `rmd history [n]` / `rmd ls history [n]`: Display processed reminders (`Missed` + `Triggered`; all by default, or `[n]` most recent)
   - `rmd msd [n]` / `rmd ls msd [n]` (alias: `missed`): Display `Missed` reminders (all by default, or `[n]` most recent)

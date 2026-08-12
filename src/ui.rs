@@ -1,9 +1,9 @@
 use chrono::{Datelike, Local};
 use terminal_size::{Width, terminal_size};
 
-use crate::Reminder;
-use crate::Status;
-use crate::TimeFormat;
+use crate::types::Reminder;
+use crate::types::Status;
+use crate::types::TimeFormat;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct NotificationPayload {
@@ -462,9 +462,8 @@ pub fn build_missed_notifications(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ReminderId;
-    use crate::Status;
-    use chrono::{Datelike, TimeZone};
+    use crate::types::ReminderId;
+    use chrono::TimeZone;
 
     #[test]
     fn test_format_datetime_table_preserves_padding() {
