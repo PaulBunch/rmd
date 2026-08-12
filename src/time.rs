@@ -12,13 +12,32 @@ const SEC_PER_WEEK: i64 = 604800; // 7 days
 const SEC_PER_MONTH: i64 = 2_592_000; // 30 days
 const SEC_PER_YEAR: i64 = 31_536_000; // 365 days
 
+const KEYWORDS: [&str; 16] = [
+    "wednesday",
+    "thursday",
+    "saturday",
+    "tomorrow",
+    "tuesday",
+    "monday",
+    "friday",
+    "sunday",
+    "today",
+    "wed",
+    "thu",
+    "sat",
+    "tue",
+    "mon",
+    "fri",
+    "sun",
+];
+
 /// Parses a time specifier string into a Unix timestamp in seconds.
 pub fn parse_time(input: &str) -> Result<i64> {
     let now = Local::now();
     parse_time_relative_to(input, now)
 }
 
-/// Core parsing logic with a explicit reference time (useful for deterministic unit testing).
+/// Core parsing logic with an explicit reference time (useful for deterministic unit testing).
 pub fn parse_time_relative_to(input: &str, now: DateTime<Local>) -> Result<i64> {
     let s = input.trim();
     if s.is_empty() {
@@ -30,8 +49,7 @@ pub fn parse_time_relative_to(input: &str, now: DateTime<Local>) -> Result<i64> 
         if secs <= 0 {
             return Err(anyhow!("Relative duration must be greater than zero"));
         }
-        let target = now.timestamp() + secs;
-        return Ok(target);
+        return Ok(now.timestamp() + secs);
     }
 
     // 2. Try parsing as absolute or keyword date/time
@@ -123,11 +141,21 @@ fn parse_relative_duration(input: &str) -> Result<i64> {
     }
 }
 
-/// Parses absolute date/time formats, time-only inputs, keywords, and weekdays.
+// --- Absolute / Keyword Parsers (Refactored Chain of Responsibility) ---
+
+/// Main dispatcher for absolute date/time parsing.
 fn parse_absolute_or_keyword(input: &str, now: DateTime<Local>) -> Result<DateTime<Local>> {
     let s = input.trim();
 
-    // 1. ISO/Compound Full Datetime: "YYYY-MM-DD HH:MM:SS", "YYYY-MM-DDTHH:MM", "YYYY-MM-DD@HH:MM"
+    try_parse_iso(s, &now)
+        .or_else(|| try_parse_date_only(s, &now))
+        .or_else(|| try_parse_time_only(s, &now))
+        .or_else(|| try_parse_keyword_or_weekday(s, &now))
+        .ok_or_else(|| anyhow!("Invalid date/time specifier: '{}'", input))
+}
+
+/// Parses full ISO/Compound Datetime: "YYYY-MM-DD HH:MM:SS", "YYYY-MM-DDTHH:MM", "YYYY-MM-DD@HH:MM"
+fn try_parse_iso(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>> {
     let s_normalized = if s.len() >= 11 && matches!(s.as_bytes()[10], b'T' | b't' | b'@') {
         let mut string = s.to_string();
         string.replace_range(10..11, " ");
@@ -136,117 +164,98 @@ fn parse_absolute_or_keyword(input: &str, now: DateTime<Local>) -> Result<DateTi
         s.to_string()
     };
 
-    if let Ok(ndt) = NaiveDateTime::parse_from_str(&s_normalized, "%Y-%m-%d %H:%M:%S")
+    NaiveDateTime::parse_from_str(&s_normalized, "%Y-%m-%d %H:%M:%S")
         .or_else(|_| NaiveDateTime::parse_from_str(&s_normalized, "%Y-%m-%d %H:%M"))
-    {
-        return naive_to_local(&ndt, &now);
-    }
+        .ok()
+        .and_then(|ndt| naive_to_local(&ndt, now).ok())
+}
 
-    // 2. Format: "YYYY-MM-DD" (defaults to 00:00:00)
-    if let Ok(nd) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        if let Some(ndt) = nd.and_hms_opt(0, 0, 0) {
-            return naive_to_local(&ndt, &now);
+/// Parses date-only inputs: "YYYY-MM-DD" (defaults to midnight 00:00:00).
+fn try_parse_date_only(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>> {
+    NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .ok()
+        .and_then(|nd| nd.and_hms_opt(0, 0, 0))
+        .and_then(|ndt| naive_to_local(&ndt, now).ok())
+}
+
+/// Parses time-only inputs: "HH:MM" or "HH:MM:SS".
+/// Rolls over to tomorrow if the time has already passed today.
+fn try_parse_time_only(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>> {
+    let nt = parse_raw_time(s).ok()?;
+    let today_date = now.date_naive();
+    let today_ndt = today_date.and_hms_opt(nt.hour(), nt.minute(), nt.second())?;
+
+    if let Ok(today_dt) = naive_to_local(&today_ndt, now) {
+        if today_dt > *now {
+            return Some(today_dt);
         }
     }
 
-    // 3. Format: "HH:MM" or "HH:MM:SS" (time only)
-    if let Ok(nt) = parse_time_only(s) {
-        let today_date = now.date_naive();
-        if let Some(today_ndt) = today_date.and_hms_opt(nt.hour(), nt.minute(), nt.second()) {
-            if let Ok(today_dt) = naive_to_local(&today_ndt, &now) {
-                if today_dt > now {
-                    return Ok(today_dt);
-                } else {
-                    // Time has passed today -> assume tomorrow at the same time
-                    let tomorrow_date = today_date
-                        .succ_opt()
-                        .ok_or_else(|| anyhow!("Date overflow"))?;
-                    if let Some(tomorrow_ndt) =
-                        tomorrow_date.and_hms_opt(nt.hour(), nt.minute(), nt.second())
-                    {
-                        return naive_to_local(&tomorrow_ndt, &now);
-                    }
-                }
-            }
-        }
-    }
+    // Time has passed today -> assume tomorrow at the same time
+    let tomorrow_date = today_date.succ_opt()?;
+    let tomorrow_ndt = tomorrow_date.and_hms_opt(nt.hour(), nt.minute(), nt.second())?;
+    naive_to_local(&tomorrow_ndt, now).ok()
+}
 
-    // 4. Keyword / Weekday + Time combinations
+/// Parses keyword or weekday combinations (e.g., "tomorrow 15:00", "mon09:00", "friday@18:30").
+fn try_parse_keyword_or_weekday(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>> {
+    let s_lower = s.to_lowercase();
+
+    // Keyword / Weekday + Time combinations
     // Supports:
     // - Spaced: "tomorrow 15:00", "mon 09:00"
     // - Concatenated: "tomorrow15:00", "mon09:00", "friday18:30"
     // - Separated by '@': "tomorrow@15:00", "mon@09:00"
-    let keywords = [
-        "wednesday",
-        "thursday",
-        "saturday",
-        "tomorrow",
-        "tuesday",
-        "monday",
-        "friday",
-        "sunday",
-        "today",
-        "wed",
-        "thu",
-        "sat",
-        "tue",
-        "mon",
-        "fri",
-        "sun",
-    ];
-
-    let s_lower = s.to_lowercase();
-    for kw in keywords {
+    for &kw in &KEYWORDS {
         if s_lower.starts_with(kw) {
             let rest = &s[kw.len()..];
             let rest_clean =
                 rest.trim_start_matches(|c: char| c == '@' || c == ':' || c.is_whitespace());
 
-            if let Ok(nt) = parse_time_only(rest_clean) {
-                let target_date = match kw {
-                    "today" => Some(now.date_naive()),
-                    "tomorrow" => now.date_naive().succ_opt(),
-                    _ => {
-                        if let Ok(weekday) = parse_weekday(kw) {
-                            let current_weekday = now.weekday();
-                            let mut days_ahead = (weekday.num_days_from_monday() + 7
-                                - current_weekday.num_days_from_monday())
-                                % 7;
-                            if days_ahead == 0 {
-                                // Same weekday: check if time has already passed today
-                                if let Some(ndt) = now.date_naive().and_hms_opt(
-                                    nt.hour(),
-                                    nt.minute(),
-                                    nt.second(),
-                                ) {
-                                    if let Ok(dt) = naive_to_local(&ndt, &now) {
-                                        if dt <= now {
-                                            days_ahead = 7; // Target next week's day
-                                        }
-                                    }
-                                }
-                            }
-                            now.date_naive()
-                                .checked_add_signed(Duration::days(days_ahead as i64))
-                        } else {
-                            None
-                        }
-                    }
-                };
+            let nt = parse_raw_time(rest_clean).ok()?;
+            let target_date = resolve_keyword_date(kw, nt, now)?;
+            let ndt = target_date.and_hms_opt(nt.hour(), nt.minute(), nt.second())?;
 
-                if let Some(date) = target_date {
-                    if let Some(ndt) = date.and_hms_opt(nt.hour(), nt.minute(), nt.second()) {
-                        return naive_to_local(&ndt, &now);
-                    }
-                }
-            }
+            return naive_to_local(&ndt, now).ok();
         }
     }
 
-    Err(anyhow!("Invalid date/time specifier: '{}'", input))
+    None
 }
 
-fn parse_time_only(s: &str) -> Result<NaiveTime> {
+/// Resolves the target target NaiveDate for keywords ("today", "tomorrow") or weekdays ("mon", "friday").
+fn resolve_keyword_date(kw: &str, time: NaiveTime, now: &DateTime<Local>) -> Option<NaiveDate> {
+    match kw {
+        "today" => Some(now.date_naive()),
+        "tomorrow" => now.date_naive().succ_opt(),
+        _ => {
+            let weekday = parse_weekday(kw).ok()?;
+            let current_weekday = now.weekday();
+            let mut days_ahead =
+                (weekday.num_days_from_monday() + 7 - current_weekday.num_days_from_monday()) % 7;
+
+            if days_ahead == 0 {
+                // Same weekday: check if time has already passed today
+                if let Some(ndt) =
+                    now.date_naive()
+                        .and_hms_opt(time.hour(), time.minute(), time.second())
+                {
+                    if let Ok(dt) = naive_to_local(&ndt, now) {
+                        if dt <= *now {
+                            days_ahead = 7; // Target next week's day
+                        }
+                    }
+                }
+            }
+            now.date_naive()
+                .checked_add_signed(Duration::days(days_ahead as i64))
+        }
+    }
+}
+
+// --- Helpers ---
+
+fn parse_raw_time(s: &str) -> Result<NaiveTime> {
     NaiveTime::parse_from_str(s, "%H:%M:%S")
         .or_else(|_| NaiveTime::parse_from_str(s, "%H:%M"))
         .map_err(|_| anyhow!("Invalid time format"))

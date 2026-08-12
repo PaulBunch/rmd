@@ -56,10 +56,10 @@
   - [x] Add a status column to the history table
 - [x] Add output of detailed info about reminder `rmd <ID>` to table (NAME VALUE)
 - [x] Recycle IDs: assign lowest available integer to new reminders
-- [ ] Refactor codebase: split large modules to improve maintainability
+- [x] Refactor codebase: split large modules to improve maintainability
   - [x] Refactor `main.rs`
   - [x] Refactor `ui.rs`
-  - [ ] Refactor `time.rs`
+  - [x] Refactor `time.rs`
 - [ ] Implement CLI workflow for listing reminders:
   - Add `--set-limit <N>` global flag to update the default active reminders limit in `config.json`
   - `rmd` / `rmd ls`: Display nearest active reminders (top N from config by default, or top `[n]`)
