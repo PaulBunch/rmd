@@ -58,7 +58,7 @@
 - [x] Recycle IDs: assign lowest available integer to new reminders
 - [ ] Refactor codebase: split large modules to improve maintainability
   - [x] Refactor `main.rs`
-  - [ ] Refactor `ui.rs`
+  - [x] Refactor `ui.rs`
   - [ ] Refactor `time.rs`
 - [ ] Implement CLI workflow for listing reminders:
   - Add `--set-limit <N>` global flag to update the default active reminders limit in `config.json`

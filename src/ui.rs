@@ -11,6 +11,13 @@ pub struct NotificationPayload {
     pub body: String,
 }
 
+// --- Helpers ---
+
+/// Wraps text in ANSI escape sequences for underlining.
+fn underline(text: &str) -> String {
+    format!("\x1b[4m{}\x1b[0m", text)
+}
+
 pub fn format_status_short(status: &Status) -> &'static str {
     match status {
         Status::Active => "Act",
@@ -27,7 +34,7 @@ pub fn format_status(status: &Status) -> &'static str {
     }
 }
 
-/// Formats a timestamp for table output (preserves alignment padding)
+/// Formats a timestamp for table output (preserves alignment padding).
 pub fn format_datetime(timestamp: i64, time_format: &TimeFormat) -> String {
     let local_dt = chrono::DateTime::from_timestamp(timestamp, 0)
         .map(|dt| dt.with_timezone(&Local))
@@ -52,7 +59,7 @@ pub fn format_datetime(timestamp: i64, time_format: &TimeFormat) -> String {
     }
 }
 
-/// Formats a timestamp for prose/inline CLI messages (collapses extra spacing)
+/// Formats a timestamp for prose/inline CLI messages (collapses extra spacing).
 pub fn format_datetime_prose(timestamp: i64, time_format: &TimeFormat) -> String {
     let raw = format_datetime(timestamp, time_format);
     raw.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -150,187 +157,201 @@ fn format_time_left(secs: u64) -> String {
     }
 }
 
-pub fn print_reminders_table(reminders: &[Reminder], time_format: &TimeFormat, show_status: bool) {
-    let count = reminders.len();
+// --- Table Rendering (Refactored) ---
 
-    // 1. Blank line before table
-    println!();
+const GAP: &str = "  "; // 2 spaces gap between columns
+
+/// Represents a single prepared row for the terminal table.
+struct TableRow {
+    id: String,
+    status: Option<String>,
+    time: String,
+    left: String,
+    message: String,
+}
+
+/// Handles the sizing and layout calculation for the terminal table.
+struct TableLayout {
+    id_width: usize,
+    st_width: usize,
+    time_width: usize,
+    left_width: usize,
+    msg_width: usize,
+    show_status: bool,
+}
+
+impl TableLayout {
+    /// Constructs a layout by calculating the maximum required column widths.
+    fn new(rows: &[TableRow], show_status: bool) -> Self {
+        // Get terminal width (default to 80 if not running in a TTY)
+        let term_width = terminal_size()
+            .map(|(Width(w), _)| w as usize)
+            .unwrap_or(80);
+
+        let id_width = rows.iter().map(|r| r.id.len()).max().unwrap_or(0).max(2);
+
+        let st_width = if show_status {
+            rows.iter()
+                .filter_map(|r| r.status.as_ref().map(|s| s.len()))
+                .max()
+                .unwrap_or(0)
+                .max(3)
+        } else {
+            0
+        };
+
+        let time_width = rows.iter().map(|r| r.time.len()).max().unwrap_or(0).max(4);
+        let left_width = rows.iter().map(|r| r.left.len()).max().unwrap_or(0).max(4);
+
+        let prefix_len = if show_status {
+            id_width
+                + GAP.len()
+                + st_width
+                + GAP.len()
+                + time_width
+                + GAP.len()
+                + left_width
+                + GAP.len()
+        } else {
+            id_width + GAP.len() + time_width + GAP.len() + left_width + GAP.len()
+        };
+
+        // Calculate maximum available space for the MESSAGE column to avoid line wraps
+        let max_msg_avail = if term_width > prefix_len + 7 {
+            term_width - prefix_len
+        } else {
+            7 // Minimum width for "MESSAGE"
+        };
+
+        let msg_width = rows
+            .iter()
+            .map(|r| r.message.chars().count())
+            .max()
+            .unwrap_or(0)
+            .max(7)
+            .min(max_msg_avail);
+
+        Self {
+            id_width,
+            st_width,
+            time_width,
+            left_width,
+            msg_width,
+            show_status,
+        }
+    }
+
+    /// Prints the table headers with correct padding and underline formatting.
+    fn print_headers(&self) {
+        let id_hdr = underline(&format!("{:<width$}", "ID", width = self.id_width));
+        let time_hdr = underline(&format!("{:<width$}", "TIME", width = self.time_width));
+        let left_hdr = underline(&format!("{:<width$}", "LEFT", width = self.left_width));
+        let msg_hdr = underline(&format!("{:<width$}", "MESSAGE", width = self.msg_width));
+
+        if self.show_status {
+            let st_hdr = underline(&format!("{:<width$}", "STA", width = self.st_width));
+            println!(
+                "{}{GAP}{}{GAP}{}{GAP}{}{GAP}{}",
+                id_hdr, st_hdr, time_hdr, left_hdr, msg_hdr
+            );
+        } else {
+            println!(
+                "{}{GAP}{}{GAP}{}{GAP}{}",
+                id_hdr, time_hdr, left_hdr, msg_hdr
+            );
+        }
+    }
+
+    /// Prints a single row, truncating the message if it exceeds the calculated layout bounds.
+    fn print_row(&self, row: &TableRow) {
+        let truncated_msg = if row.message.chars().count() > self.msg_width {
+            if self.msg_width > 3 {
+                let mut s: String = row.message.chars().take(self.msg_width - 3).collect();
+                s.push_str("...");
+                s
+            } else {
+                row.message.chars().take(self.msg_width).collect()
+            }
+        } else {
+            row.message.clone()
+        };
+
+        if self.show_status {
+            let st_val = row.status.as_deref().unwrap_or("");
+            println!(
+                "{:<id_w$}{GAP}{:<st_w$}{GAP}{:<time_w$}{GAP}{:<left_w$}{GAP}{}",
+                row.id,
+                st_val,
+                row.time,
+                row.left,
+                truncated_msg,
+                id_w = self.id_width,
+                st_w = self.st_width,
+                time_w = self.time_width,
+                left_w = self.left_width
+            );
+        } else {
+            println!(
+                "{:<id_w$}{GAP}{:<time_w$}{GAP}{:<left_w$}{GAP}{}",
+                row.id,
+                row.time,
+                row.left,
+                truncated_msg,
+                id_w = self.id_width,
+                time_w = self.time_width,
+                left_w = self.left_width
+            );
+        }
+    }
+}
+
+pub fn print_reminders_table(reminders: &[Reminder], time_format: &TimeFormat, show_status: bool) {
+    println!(); // Blank line before table
 
     if reminders.is_empty() {
-        println!("No active reminders");
-        println!();
-        println!("0 reminders");
+        println!("No active reminders\n\n0 reminders");
         return;
     }
 
-    // Get terminal width (default to 80 if not running in a TTY)
-    let term_width = terminal_size()
-        .map(|(Width(w), _)| w as usize)
-        .unwrap_or(80);
-
     let now_dt = Local::now();
 
-    // Prepare rows: (id, status, time, left, message)
-    let rows: Vec<(String, Option<String>, String, String, String)> = reminders
+    // 1. Prepare data rows (separation of concerns: map domain models to UI models)
+    let rows: Vec<TableRow> = reminders
         .iter()
         .map(|r| {
-            let status_str = if show_status {
-                Some(format_status_short(&r.status).to_string())
-            } else {
-                None
-            };
-            let time_str = format_datetime(r.trigger_at, time_format);
+            let status = show_status.then(|| format_status_short(&r.status).to_string());
+            let time = format_datetime(r.trigger_at, time_format);
 
-            let left_str = if r.status == Status::Active {
+            let left = if r.status == Status::Active {
                 let diff = r.trigger_at.saturating_sub(now_dt.timestamp());
                 format_time_left(if diff > 0 { diff as u64 } else { 0 })
             } else {
                 "-".to_string()
             };
 
-            (
-                r.id.to_string(),
-                status_str,
-                time_str,
-                left_str,
-                r.message.clone(),
-            )
+            TableRow {
+                id: r.id.to_string(),
+                status,
+                time,
+                left,
+                message: r.message.clone(),
+            }
         })
         .collect();
 
-    // Dynamic column width calculation
-    let id_width = rows
-        .iter()
-        .map(|(id, ..)| id.len())
-        .max()
-        .unwrap_or(0)
-        .max("ID".len());
+    // 2. Calculate dynamic layout
+    let layout = TableLayout::new(&rows, show_status);
 
-    let st_width = if show_status {
-        rows.iter()
-            .filter_map(|(_, st, ..)| st.as_ref().map(|s| s.len()))
-            .max()
-            .unwrap_or(0)
-            .max("STA".len())
-    } else {
-        0
-    };
-
-    let time_width = rows
-        .iter()
-        .map(|(_, _, time, ..)| time.len())
-        .max()
-        .unwrap_or(0)
-        .max("TIME".len());
-
-    let left_width = rows
-        .iter()
-        .map(|(_, _, _, left, _)| left.len())
-        .max()
-        .unwrap_or(0)
-        .max("LEFT".len());
-
-    let gap = "  "; // 2 spaces gap between columns
-    let prefix_len = if show_status {
-        id_width
-            + gap.len()
-            + st_width
-            + gap.len()
-            + time_width
-            + gap.len()
-            + left_width
-            + gap.len()
-    } else {
-        id_width + gap.len() + time_width + gap.len() + left_width + gap.len()
-    };
-
-    // Calculate maximum available space for MESSAGE column
-    let max_msg_avail = if term_width > prefix_len + 4 {
-        term_width - prefix_len
-    } else {
-        "MESSAGE".len()
-    };
-
-    let msg_width = rows
-        .iter()
-        .map(|(_, _, _, _, msg)| msg.chars().count())
-        .max()
-        .unwrap_or(0)
-        .max("MESSAGE".len())
-        .min(max_msg_avail);
-
-    // 2. Format headers with ANSI underline on the same line
-    let header_id = format!("{:<width$}", "ID", width = id_width);
-    let header_time = format!("{:<width$}", "TIME", width = time_width);
-    let header_left = format!("{:<width$}", "LEFT", width = left_width);
-    let header_msg = format!("{:<width$}", "MESSAGE", width = msg_width);
-
-    if show_status {
-        let header_st = format!("{:<width$}", "STA", width = st_width);
-        println!(
-            "\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m",
-            header_id, gap, header_st, gap, header_time, gap, header_left, gap, header_msg
-        );
-    } else {
-        println!(
-            "\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m",
-            header_id, gap, header_time, gap, header_left, gap, header_msg
-        );
+    // 3. Render headers and rows
+    layout.print_headers();
+    for row in &rows {
+        layout.print_row(row);
     }
 
-    // Print data rows
-    for (id, st, time, left, msg) in rows {
-        let truncated_msg = if msg.chars().count() > msg_width {
-            if msg_width > 3 {
-                let mut s: String = msg.chars().take(msg_width - 3).collect();
-                s.push_str("...");
-                s
-            } else {
-                msg.chars().take(msg_width).collect()
-            }
-        } else {
-            msg
-        };
+    println!(); // Blank line after table
 
-        if show_status {
-            let st_val = st.as_deref().unwrap_or("");
-            println!(
-                "{:<id_w$}{}{:<st_w$}{}{:<time_w$}{}{:<left_w$}{}{}",
-                id,
-                gap,
-                st_val,
-                gap,
-                time,
-                gap,
-                left,
-                gap,
-                truncated_msg,
-                id_w = id_width,
-                st_w = st_width,
-                time_w = time_width,
-                left_w = left_width
-            );
-        } else {
-            println!(
-                "{:<id_w$}{}{:<time_w$}{}{:<left_w$}{}{}",
-                id,
-                gap,
-                time,
-                gap,
-                left,
-                gap,
-                truncated_msg,
-                id_w = id_width,
-                time_w = time_width,
-                left_w = left_width
-            );
-        }
-    }
-
-    // 3. Blank line after table
-    println!();
-
-    // 4. Summary output
+    // 4. Output summary
+    let count = reminders.len();
     if count == 1 {
         println!("1 reminder");
     } else {
@@ -338,7 +359,7 @@ pub fn print_reminders_table(reminders: &[Reminder], time_format: &TimeFormat, s
     }
 }
 
-/// Prints key-value details for a single reminder formatted like a table
+/// Prints key-value details for a single reminder formatted like a table.
 pub fn print_reminder_info(reminder: &Reminder, time_format: &TimeFormat) {
     let now = Local::now().timestamp();
 
@@ -361,27 +382,19 @@ pub fn print_reminder_info(reminder: &Reminder, time_format: &TimeFormat) {
         ("Message", reminder.message.clone()),
     ];
 
-    // 1. Blank line before table
     println!();
 
     let term_width = terminal_size()
         .map(|(Width(w), _)| w as usize)
         .unwrap_or(80);
 
-    let name_width = rows
-        .iter()
-        .map(|(n, _)| n.len())
-        .max()
-        .unwrap_or(0)
-        .max("NAME".len());
+    let name_width = rows.iter().map(|(n, _)| n.len()).max().unwrap_or(0).max(4); // "NAME".len()
 
-    let gap = "  "; // 2 spaces gap between columns
-    let prefix_len = name_width + gap.len();
-
-    let max_val_avail = if term_width > prefix_len + 4 {
+    let prefix_len = name_width + GAP.len();
+    let max_val_avail = if term_width > prefix_len + 5 {
         term_width - prefix_len
     } else {
-        "VALUE".len()
+        5 // "VALUE".len()
     };
 
     let val_width = rows
@@ -389,19 +402,14 @@ pub fn print_reminder_info(reminder: &Reminder, time_format: &TimeFormat) {
         .map(|(_, v)| v.chars().count())
         .max()
         .unwrap_or(0)
-        .max("VALUE".len())
+        .max(5)
         .min(max_val_avail);
 
-    // 2. Format headers with ANSI underline
-    let header_name = format!("{:<width$}", "NAME", width = name_width);
-    let header_val = format!("{:<width$}", "VALUE", width = val_width);
+    let header_name = underline(&format!("{:<width$}", "NAME", width = name_width));
+    let header_val = underline(&format!("{:<width$}", "VALUE", width = val_width));
 
-    println!(
-        "\x1b[4m{}\x1b[0m{}\x1b[4m{}\x1b[0m",
-        header_name, gap, header_val
-    );
+    println!("{}{GAP}{}", header_name, header_val);
 
-    // 3. Print rows
     for (name, val) in rows {
         let truncated_val = if val.chars().count() > val_width {
             if val_width > 3 {
@@ -416,19 +424,17 @@ pub fn print_reminder_info(reminder: &Reminder, time_format: &TimeFormat) {
         };
 
         println!(
-            "{:<name_w$}{}{}",
+            "{:<name_w$}{GAP}{}",
             name,
-            gap,
             truncated_val,
             name_w = name_width
         );
     }
 
-    // 4. Blank line after table
     println!();
 }
 
-/// Formats notifications for missed reminders
+/// Formats notifications for missed reminders.
 pub fn build_missed_notifications(
     missed: &[Reminder],
     fmt: &TimeFormat,
@@ -459,18 +465,20 @@ pub fn build_missed_notifications(
     }
 }
 
+// =========================================================================
+// TESTS
+// =========================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::ReminderId;
-    use chrono::TimeZone;
+    use crate::types::Status;
+    use chrono::{Datelike, TimeZone};
 
     #[test]
     fn test_format_datetime_table_preserves_padding() {
-        // Construct a fixed timestamp: 04:01 AM, Aug 9
-        // Single digit hour (4) and single digit day (9) trigger %k and %e padding
         let current_year = Local::now().year();
-        // We use the current system year so that the test does not depend on the calendar year
         let dt = Local
             .with_ymd_and_hms(current_year, 8, 9, 4, 1, 0)
             .single()
@@ -494,7 +502,6 @@ mod tests {
 
         let prose_formatted = format_datetime_prose(ts, &TimeFormat::Human);
 
-        // Cleaned up for inline message
         assert_eq!(prose_formatted, "4:01 Sun 9 Aug");
     }
 
@@ -529,7 +536,6 @@ mod tests {
         let notifications = build_missed_notifications(&missed, &TimeFormat::Human);
         assert_eq!(notifications.len(), 1);
 
-        // Verify body starts with trimmed time "4:01 Sun 9 Aug" without leading space
         assert!(
             notifications[0].body.starts_with("4:01 Sun 9 Aug"),
             "Expected body to start with trimmed datetime, got: {}",
@@ -546,7 +552,6 @@ mod tests {
             status: Status::Missed,
         }];
 
-        // Get the expected start date in local time
         let expected_date = chrono::DateTime::from_timestamp(missed[0].trigger_at, 0)
             .unwrap()
             .with_timezone(&chrono::Local)
