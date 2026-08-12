@@ -4,10 +4,20 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Application configuration structure
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
-    #[serde(default)]
     pub time_format: TimeFormat,
+    pub limit: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            time_format: TimeFormat::Human,
+            limit: 5, // 0 = no limit (or other default value)
+        }
+    }
 }
 
 /// Configuration directory

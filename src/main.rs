@@ -18,10 +18,7 @@ async fn main() -> Result<()> {
     // 2. Load configuration from disk
     let mut app_config = config::load_config();
 
-    // 3. Handle global flags that update configuration (e.g., --set-time-format)
-    cli::handle_global_flags(&cli_args, &mut app_config)?;
-
-    // 4. Route the execution flow depending on the arguments passed
+    // 3. Route the execution flow depending on the arguments passed
     if let Some(cmd) = cli_args.command {
         match cmd {
             cli::Commands::Daemon => {
@@ -29,12 +26,12 @@ async fn main() -> Result<()> {
                 daemon::run().await?;
             }
             // Delegate remaining subcommands to the CLI handler (dispatches IPC requests)
-            _ => cli::handle_command(cmd, &app_config).await?,
+            _ => cli::handle_command(cmd, &mut app_config).await?,
         }
     } else if !cli_args.raw_args.is_empty() {
         // Handle positional arguments (adding a new reminder or inspecting IDs)
         cli::handle_raw_args(&cli_args.raw_args, &app_config).await?;
-    } else if cli_args.set_time_format.is_none() {
+    } else {
         // Calling `rmd` without arguments prints active reminders by default
         ipc::send_request(ipc::Request::List { all: false }, &app_config).await?;
     }

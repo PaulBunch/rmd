@@ -60,14 +60,16 @@
   - [x] Refactor `main.rs`
   - [x] Refactor `ui.rs`
   - [x] Refactor `time.rs`
-- [ ] Implement CLI workflow for listing reminders:
-  - Add `--set-limit <N>` global flag to update the default active reminders limit in `config.json`
-  - `rmd` / `rmd ls`: Display nearest active reminders (top N from config by default, or top `[n]`)
-  - `rmd act [n]` / `rmd ls act [n]` (aliases: `active`, `all`): Display active reminders (all by default, or top `[n]`)
-  - `rmd history [n]` / `rmd ls history [n]`: Display processed reminders (`Missed` + `Triggered`; all by default, or `[n]` most recent)
-  - `rmd msd [n]` / `rmd ls msd [n]` (alias: `missed`): Display `Missed` reminders (all by default, or `[n]` most recent)
-  - `rmd trg [n]` / `rmd ls trg [n]` (alias: `triggered`): Display `Triggered` reminders (all by default, or `[n]` most recent)
-  - `rmd log [n]` / `rmd ls log [n]` (alias: `everything`): Display all reminders across all statuses in chronological order (all by default, or `[n]` most recent)
+- [x] Refactor configuration flags into dedicated subcommands (keep only `-h` / `--help` and `-V` / `--version` as global options)
+  - [x] Migrate `--set-time-format` to `rmd config time-format <iso|human>`.
+  - [x] Add `rmd config limit <N>` — set default limit of active reminders shown by `rmd` / `rmd ls`
+- [ ] Implement consistent listing workflow:
+  - `rmd` / `rmd ls [n]` — show nearest active reminders (default: top N from config; optional `[n]` overrides)
+  - `rmd active [n]` (alias: `act`) — show active reminders (default: all; optional `[n]` = top N)
+  - `rmd history [n]` (alias: `hist`) — show processed reminders (`Missed` + `Triggered`; default: all; optional `[n]` = most recent)
+  - `rmd missed [n]` (alias: `msd`) — show only `Missed` reminders (default: all; optional `[n]` = most recent)
+  - `rmd triggered [n]` (alias: `trg`) — show only `Triggered` reminders (default: all; optional `[n]` = most recent)
+  - `rmd log [n]` (alias: `all`, `everything`) — show all reminders in chronological order (default: all; optional `[n]` = most recent)
 
 ## Phase 7: Release & Distribution
 

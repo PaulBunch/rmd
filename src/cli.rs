@@ -4,7 +4,7 @@ use crate::time::parse_time;
 use crate::types::{Reminder, ReminderId, TimeFormat};
 use crate::ui;
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
@@ -17,16 +17,43 @@ pub struct Cli {
     /// Time specification and message as positional arguments
     #[arg(num_args = 1..)]
     pub raw_args: Vec<String>,
+}
 
-    /// Set time format and save to config (iso, human)
-    #[arg(long, global = true)]
-    pub set_time_format: Option<String>,
+#[derive(ValueEnum, Clone, Debug)]
+pub enum TimeFormatChoice {
+    Iso,
+    Human,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommands {
+    /// Set display time format (iso, human)
+    TimeFormat {
+        #[arg(value_enum)]
+        format: TimeFormatChoice,
+    },
+    /// Set default limit of active reminders shown by `rmd` / `rmd ls`
+    Limit {
+        /// Maximum number of active reminders to show
+        limit: usize,
+    },
+    /// Reset all configuration settings to default values
+    Reset {
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Start the background daemon
     Daemon,
+    /// Manage application configuration
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
+    },
     /// List reminders
     Ls {
         /// Show all reminders including past history (triggered and missed)
@@ -73,26 +100,39 @@ pub fn parse_time_and_message(args: &[String]) -> Result<(String, String)> {
     anyhow::bail!("Invalid time format in arguments: '{}'", args.join(" "))
 }
 
-pub fn handle_global_flags(cli: &Cli, config: &mut Config) -> Result<()> {
-    // If the flag is passed, update the config and save it immediately
-    if let Some(fmt) = &cli.set_time_format {
-        match fmt.as_str() {
-            "human" => {
-                config.time_format = TimeFormat::Human;
-                save_config(config)?;
-                println!("✓ Time format set to 'human'");
+pub fn handle_config_command(cmd: ConfigCommands, config: &mut Config) -> Result<()> {
+    match cmd {
+        ConfigCommands::TimeFormat { format } => {
+            config.time_format = match format {
+                TimeFormatChoice::Human => TimeFormat::Human,
+                TimeFormatChoice::Iso => TimeFormat::Iso,
+            };
+            save_config(config)?;
+            println!("✓ Time format set to '{:?}'", format);
+        }
+        ConfigCommands::Limit { limit } => {
+            config.limit = limit;
+            save_config(config)?;
+            println!("✓ Default display limit set to {}", limit);
+        }
+        ConfigCommands::Reset { yes } => {
+            if !yes {
+                print!("Reset all configuration settings to defaults? [y/N]: ");
+                std::io::stdout().flush()?;
+
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+
+                let reply = input.trim().to_lowercase();
+                if reply != "y" && reply != "yes" {
+                    println!("Canceled.");
+                    return Ok(());
+                }
             }
-            "iso" => {
-                config.time_format = TimeFormat::Iso;
-                save_config(config)?;
-                println!("✓ Time format set to 'iso'");
-            }
-            _ => {
-                eprintln!(
-                    "✗ Error: Unknown format '{}'. Valid options: human, iso",
-                    fmt
-                );
-            }
+
+            *config = Config::default();
+            save_config(config)?;
+            println!("✓ Configuration reset to defaults.");
         }
     }
     Ok(())
@@ -147,9 +187,10 @@ async fn handle_info_command(ids: Vec<ReminderId>, config: &Config) -> Result<()
     Ok(())
 }
 
-pub async fn handle_command(cmd: Commands, config: &Config) -> Result<()> {
+pub async fn handle_command(cmd: Commands, config: &mut Config) -> Result<()> {
     match cmd {
         Commands::Daemon => { /* handled in main */ }
+        Commands::Config { command } => handle_config_command(command, config)?,
         Commands::Ls { all } => send_request(Request::List { all }, config).await?,
         Commands::History => send_request(Request::List { all: true }, config).await?,
         Commands::Info { ids } => handle_info_command(ids, config).await?,
