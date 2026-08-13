@@ -1,10 +1,11 @@
-use crate::config::{Config, save_config};
+use crate::config::{Config, get_config_path, save_config};
 use crate::ipc::{ListFilter, Request, Response, send_ipc, send_request};
 use crate::time::parse_time;
 use crate::types::{Reminder, ReminderId, TimeFormat};
 use crate::ui;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
+use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
@@ -27,6 +28,9 @@ pub enum TimeFormatChoice {
 
 #[derive(Subcommand, Debug)]
 pub enum ConfigCommands {
+    /// Show active configuration settings and config file path
+    #[command(alias = "ls")]
+    Show,
     /// Set display time format (iso, human)
     TimeFormat {
         #[arg(value_enum)]
@@ -148,8 +152,32 @@ pub fn parse_time_and_message(args: &[String]) -> Result<(String, String)> {
     anyhow::bail!("Invalid time format in arguments: '{}'", args.join(" "))
 }
 
+/// Prints the currently loaded configuration in a clean, key-value key format.
+fn print_config(config: &Config) {
+    println!("\nConfig File: {}\n", get_config_path().display());
+
+    // Serialize the config struct into an intermediate JSON Value
+    if let Ok(Value::Object(map)) = serde_json::to_value(config) {
+        // Dynamically find maximum key length for proper output alignment
+        let max_key_len = map.keys().map(|k| k.len()).max().unwrap_or(0);
+
+        for (key, val) in map {
+            // Strip surrounding quotes from string values (e.g., "human" -> human)
+            let val_str = match val {
+                Value::String(s) => s,
+                other => other.to_string(),
+            };
+            println!("  {:width$} : {}", key, val_str, width = max_key_len);
+        }
+    }
+    println!();
+}
+
 pub fn handle_config_command(cmd: ConfigCommands, config: &mut Config) -> Result<()> {
     match cmd {
+        ConfigCommands::Show => {
+            print_config(config);
+        }
         ConfigCommands::TimeFormat { format } => {
             config.time_format = match format {
                 TimeFormatChoice::Human => TimeFormat::Human,
