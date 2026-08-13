@@ -69,26 +69,34 @@ rmd 18:30 Evening standup
 rmd 2026-08-10 09:00 Doctor appointment
 rmd 2026-12-01@10:00 VPS domain renewal
 
-# List active reminders
+# --- Inspection & Listing ---
+
+# List nearest active reminders (top N based on config)
 rmd
-# or: rmd ls
+# or override limit:
+rmd ls 10
 
-# View history (triggered & missed reminders)
-rmd history
-# or: rmd ls --all
+# Show specific subsets (supports optional limit N)
+rmd active [n]       # Active reminders (alias: act)
+rmd history [n]      # Missed & Triggered (alias: hist)
+rmd missed [n]       # Only Missed reminders (alias: msd)
+rmd triggered [n]    # Only Triggered reminders (alias: trg)
+rmd log [n]          # Full chronological list (aliases: all, everything)
 
-# View detailed information for specific reminder(s)
+# View detailed info for specific reminder(s)
 rmd 3
 rmd 1 2 5
 # or: rmd info 1 2 5
 
-# Purge finished and missed reminders
-rmd clean
+# --- Management & Cleanup ---
 
-# Remove reminders (supports multiple IDs and auto-confirmation)
+# Purge finished and missed reminders from history (interactive confirmation)
+rmd clean
+rmd clean -y         # Skip confirmation prompt
+
+# Remove specific reminders by ID
 rmd rm 3
-rmd rm 1 2 5
-rmd rm 3 -y
+rmd rm 1 2 5 -y      # Skip confirmation prompt
 ```
 
 > **Tip:** Quotes around date/time or message are optional. `rmd tomorrow 15:00 Call mom` and `rmd "tomorrow 15:00" "Call mom"` work identically.
@@ -106,6 +114,12 @@ To manually run the daemon in the foreground:
 rmd daemon
 ```
 
+To stop the running daemon:
+
+```bash
+rmd stop
+```
+
 To view logs when running via systemd:
 
 ```bash
@@ -121,16 +135,39 @@ journalctl --user -u rmd.service -f
 
 ## Configuration & Paths
 
-State directory:
+View current settings and active configuration file location:
 
+```bash
+rmd config show
 ```
+
+Manage options via CLI:
+
+```bash
+rmd config time-format human   # Set display time format (human, iso)
+rmd config limit 10            # Set default active reminders limit
+rmd config reset               # Reset configuration to default values
+```
+
+### File Locations
+
+Configuration file:
+
+```text
+$XDG_CONFIG_HOME/rmd/config.json
+# (falls back to ~/.config/rmd/config.json)
+```
+
+State storage:
+
+```text
 $XDG_STATE_HOME/rmd/reminders.json
 # (falls back to ~/.local/state/rmd/reminders.json)
 ```
 
 Runtime socket:
 
-```
+```text
 $XDG_RUNTIME_DIR/rmd.sock
 # (falls back to /tmp/rmd.sock)
 ```
