@@ -18,6 +18,36 @@ fn underline(text: &str) -> String {
     format!("\x1b[4m{}\x1b[0m", text)
 }
 
+/// Helper to softly wrap text by words to a specific width
+fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for paragraph in text.lines() {
+        if paragraph.trim().is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let mut current_line = String::new();
+        for word in paragraph.split_whitespace() {
+            if current_line.is_empty() {
+                current_line.push_str(word);
+            } else if current_line.chars().count() + 1 + word.chars().count() <= max_width {
+                current_line.push(' ');
+                current_line.push_str(word);
+            } else {
+                lines.push(current_line);
+                current_line = word.to_string();
+            }
+        }
+        if !current_line.is_empty() {
+            lines.push(current_line);
+        }
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
 pub fn format_status_short(status: &Status) -> &'static str {
     match status {
         Status::Active => "Act",
@@ -178,11 +208,12 @@ struct TableLayout {
     left_width: usize,
     msg_width: usize,
     show_status: bool,
+    left_col_name: String,
 }
 
 impl TableLayout {
     /// Constructs a layout by calculating the maximum required column widths.
-    fn new(rows: &[TableRow], show_status: bool) -> Self {
+    fn new(rows: &[TableRow], show_status: bool, left_col_name: String) -> Self {
         // Get terminal width (default to 80 if not running in a TTY)
         let term_width = terminal_size()
             .map(|(Width(w), _)| w as usize)
@@ -201,7 +232,12 @@ impl TableLayout {
         };
 
         let time_width = rows.iter().map(|r| r.time.len()).max().unwrap_or(0).max(4);
-        let left_width = rows.iter().map(|r| r.left.len()).max().unwrap_or(0).max(4);
+        let left_width = rows
+            .iter()
+            .map(|r| r.left.len())
+            .max()
+            .unwrap_or(0)
+            .max(left_col_name.len());
 
         let prefix_len = if show_status {
             id_width
@@ -238,6 +274,7 @@ impl TableLayout {
             left_width,
             msg_width,
             show_status,
+            left_col_name,
         }
     }
 
@@ -245,7 +282,11 @@ impl TableLayout {
     fn print_headers(&self) {
         let id_hdr = underline(&format!("{:<width$}", "ID", width = self.id_width));
         let time_hdr = underline(&format!("{:<width$}", "TIME", width = self.time_width));
-        let left_hdr = underline(&format!("{:<width$}", "LEFT", width = self.left_width));
+        let left_hdr = underline(&format!(
+            "{:<width$}",
+            self.left_col_name,
+            width = self.left_width
+        ));
         let msg_hdr = underline(&format!("{:<width$}", "MESSAGE", width = self.msg_width));
 
         if self.show_status {
@@ -319,6 +360,19 @@ pub fn print_reminders_table(
     }
 
     let now_dt = Local::now();
+    let now_ts = now_dt.timestamp();
+
+    // Determine what name to give to the column:
+    let has_active = reminders.iter().any(|r| r.status == Status::Active);
+    let has_history = reminders.iter().any(|r| r.status != Status::Active);
+    let left_col_name = match (has_active, has_history) {
+        (true, false) => "LEFT",
+        (false, true) => "ELAPSED",
+        _ => "LEFT/ELAP", // If the table is mixed (for example, list all)
+    }
+    .to_string();
+
+    let is_mixed = has_active && has_history;
 
     // 1. Prepare data rows (separation of concerns: map domain models to UI models)
     let rows: Vec<TableRow> = reminders
@@ -327,11 +381,17 @@ pub fn print_reminders_table(
             let status = show_status.then(|| format_status_short(&r.status).to_string());
             let time = format_datetime(r.trigger_at, time_format);
 
-            let left = if r.status == Status::Active {
-                let diff = r.trigger_at.saturating_sub(now_dt.timestamp());
-                format_time_left(if diff > 0 { diff as u64 } else { 0 })
+            let left = if r.trigger_at > now_ts {
+                format_time_left((r.trigger_at - now_ts) as u64)
+            } else if r.trigger_at < now_ts {
+                let elapsed_str = format_time_left((now_ts - r.trigger_at) as u64);
+                if is_mixed {
+                    format!("- {}", elapsed_str)
+                } else {
+                    elapsed_str
+                }
             } else {
-                "-".to_string()
+                format_time_left(0) // In case of exact time matching, to avoid "-0s"
             };
 
             TableRow {
@@ -345,7 +405,7 @@ pub fn print_reminders_table(
         .collect();
 
     // 2. Calculate dynamic layout
-    let layout = TableLayout::new(&rows, show_status);
+    let layout = TableLayout::new(&rows, show_status, left_col_name);
 
     // 3. Render headers and rows
     layout.print_headers();
@@ -420,24 +480,18 @@ pub fn print_reminder_info(reminder: &Reminder, time_format: &TimeFormat) {
     println!("{}{GAP}{}", header_name, header_val);
 
     for (name, val) in rows {
-        let truncated_val = if val.chars().count() > val_width {
-            if val_width > 3 {
-                let mut s: String = val.chars().take(val_width - 3).collect();
-                s.push_str("...");
-                s
-            } else {
-                val.chars().take(val_width).collect()
-            }
-        } else {
-            val
-        };
+        // Split the line into several if it doesn't fit
+        let wrapped_vals = wrap_text(&val, val_width);
 
-        println!(
-            "{:<name_w$}{GAP}{}",
-            name,
-            truncated_val,
-            name_w = name_width
-        );
+        for (i, line) in wrapped_vals.iter().enumerate() {
+            if i == 0 {
+                // The first line is displayed with the key name
+                println!("{:<name_w$}{GAP}{}", name, line, name_w = name_width);
+            } else {
+                // Sublines are aligned with an empty indent
+                println!("{:<name_w$}{GAP}{}", "", line, name_w = name_width);
+            }
+        }
     }
 
     println!();
