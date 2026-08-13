@@ -1,5 +1,5 @@
 use crate::config::load_config;
-use crate::ipc::{Request, Response};
+use crate::ipc::{ListFilter, Request, Response};
 use crate::storage::{get_socket_path, load_reminders, save_reminders};
 use crate::time::parse_time;
 use crate::types::{IdAllocator, Reminder, ReminderId, Status};
@@ -186,17 +186,42 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) ->
             }
             Err(e) => Response::Error(format!("Invalid time format: {}", e)),
         },
-        Request::List { all } => {
-            let list = if all {
-                reminders.clone()
-            } else {
-                reminders
-                    .iter()
-                    .filter(|r| r.status == Status::Active)
-                    .cloned()
-                    .collect()
-            };
-            Response::List(list)
+        Request::List { filter, limit } => {
+            let mut list: Vec<Reminder> = reminders
+                .iter()
+                .filter(|r| match filter {
+                    ListFilter::Active => r.status == Status::Active,
+                    ListFilter::History => r.status != Status::Active,
+                    ListFilter::Missed => r.status == Status::Missed,
+                    ListFilter::Triggered => r.status == Status::Triggered,
+                    ListFilter::All => true,
+                })
+                .cloned()
+                .collect();
+
+            // Always start with chronological sorting
+            list.sort_by_key(|r| r.trigger_at);
+
+            let total = list.len();
+
+            if let Some(n) = limit {
+                if matches!(
+                    filter,
+                    ListFilter::History
+                        | ListFilter::Missed
+                        | ListFilter::Triggered
+                        | ListFilter::All
+                ) {
+                    let start = list.len().saturating_sub(n);
+                    list = list.split_off(start);
+                } else {
+                    list.truncate(n);
+                }
+            }
+            Response::List {
+                reminders: list,
+                total,
+            }
         }
         Request::Clean => {
             let mut removed_count = 0;

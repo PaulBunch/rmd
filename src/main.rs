@@ -9,6 +9,7 @@ mod ui;
 
 use anyhow::Result;
 use clap::Parser;
+use ipc::ListFilter;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
@@ -32,8 +33,15 @@ async fn main() -> Result<()> {
         // Handle positional arguments (adding a new reminder or inspecting IDs)
         cli::handle_raw_args(&cli_args.raw_args, &app_config).await?;
     } else {
-        // Calling `rmd` without arguments prints active reminders by default
-        ipc::send_request(ipc::Request::List { all: false }, &app_config).await?;
+        // Calling `rmd` without arguments prints active reminders by default (top N from config)
+        ipc::send_request(
+            ipc::Request::List {
+                filter: ListFilter::Active,
+                limit: Some(app_config.limit),
+            },
+            &app_config,
+        )
+        .await?;
     }
 
     Ok(())

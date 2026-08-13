@@ -63,7 +63,7 @@
 - [x] Refactor configuration flags into dedicated subcommands (keep only `-h` / `--help` and `-V` / `--version` as global options)
   - [x] Migrate `--set-time-format` to `rmd config time-format <iso|human>`.
   - [x] Add `rmd config limit <N>` — set default limit of active reminders shown by `rmd` / `rmd ls`
-- [ ] Implement consistent listing workflow:
+- [x] Implement consistent listing workflow:
   - `rmd` / `rmd ls [n]` — show nearest active reminders (default: top N from config; optional `[n]` overrides)
   - `rmd active [n]` (alias: `act`) — show active reminders (default: all; optional `[n]` = top N)
   - `rmd history [n]` (alias: `hist`) — show processed reminders (`Missed` + `Triggered`; default: all; optional `[n]` = most recent)

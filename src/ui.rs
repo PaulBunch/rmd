@@ -305,11 +305,16 @@ impl TableLayout {
     }
 }
 
-pub fn print_reminders_table(reminders: &[Reminder], time_format: &TimeFormat, show_status: bool) {
+pub fn print_reminders_table(
+    reminders: &[Reminder],
+    total: usize,
+    time_format: &TimeFormat,
+    show_status: bool,
+) {
     println!(); // Blank line before table
 
     if reminders.is_empty() {
-        println!("No active reminders\n\n0 reminders");
+        println!("No reminders found\n\n0 reminders");
         return;
     }
 
@@ -352,10 +357,14 @@ pub fn print_reminders_table(reminders: &[Reminder], time_format: &TimeFormat, s
 
     // 4. Output summary
     let count = reminders.len();
-    if count == 1 {
-        println!("1 reminder");
+    if count == total {
+        if count == 1 {
+            println!("1 reminder");
+        } else {
+            println!("{} reminders", count);
+        }
     } else {
-        println!("{} reminders", count);
+        println!("Showing {} of {} reminders", count, total);
     }
 }
 

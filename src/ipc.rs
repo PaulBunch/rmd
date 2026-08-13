@@ -9,13 +9,30 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ListFilter {
+    Active,
+    History,
+    Missed,
+    Triggered,
+    All,
+}
+
 /// Messages sent from the CLI to the Daemon
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Request {
-    Add { time_spec: String, message: String },
-    List { all: bool },
+    Add {
+        time_spec: String,
+        message: String,
+    },
+    List {
+        filter: ListFilter,
+        limit: Option<usize>,
+    },
     Clean,
-    Remove { ids: Vec<ReminderId> },
+    Remove {
+        ids: Vec<ReminderId>,
+    },
     Stop,
 }
 
@@ -25,7 +42,10 @@ pub enum Response {
     Ok(String),
     Added(Reminder),
     Removed(Vec<Reminder>),
-    List(Vec<Reminder>),
+    List {
+        reminders: Vec<Reminder>,
+        total: usize,
+    },
     Error(String),
 }
 
@@ -82,7 +102,11 @@ pub async fn send_ipc(req: Request) -> Result<Response> {
 
 pub async fn send_request(req: Request, config: &Config) -> Result<()> {
     // Determine if the status column is needed before moving `req` to `send_ipc`
-    let show_status = matches!(req, Request::List { all: true });
+    let show_status = match &req {
+        Request::List { filter, .. } => matches!(filter, ListFilter::History | ListFilter::All),
+        _ => false,
+    };
+
     let response = send_ipc(req).await?;
 
     // Output the response to the user
@@ -102,8 +126,8 @@ pub async fn send_request(req: Request, config: &Config) -> Result<()> {
                 );
             }
         }
-        Response::List(reminders) => {
-            ui::print_reminders_table(&reminders, &config.time_format, show_status);
+        Response::List { reminders, total } => {
+            ui::print_reminders_table(&reminders, total, &config.time_format, show_status);
         }
         Response::Error(err) => eprintln!("✗ Error: {}", err),
     }

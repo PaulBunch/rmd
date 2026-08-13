@@ -1,5 +1,5 @@
 use crate::config::{Config, save_config};
-use crate::ipc::{Request, Response, send_ipc, send_request};
+use crate::ipc::{ListFilter, Request, Response, send_ipc, send_request};
 use crate::time::parse_time;
 use crate::types::{Reminder, ReminderId, TimeFormat};
 use crate::ui;
@@ -54,14 +54,41 @@ pub enum Commands {
         #[command(subcommand)]
         command: ConfigCommands,
     },
-    /// List reminders
+    /// Show nearest active reminders
     Ls {
-        /// Show all reminders including past history (triggered and missed)
-        #[arg(short, long)]
-        all: bool,
+        /// Optional override for top N reminders
+        n: Option<usize>,
     },
-    /// View history of past and missed notifications
-    History,
+    /// Show active reminders
+    #[command(alias = "act")]
+    Active {
+        /// Optional limit (top N nearest)
+        n: Option<usize>,
+    },
+    /// Show processed reminders (Missed + Triggered)
+    #[command(alias = "hist")]
+    History {
+        /// Optional limit (most recent N)
+        n: Option<usize>,
+    },
+    /// Show only Missed reminders
+    #[command(alias = "msd")]
+    Missed {
+        /// Optional limit (most recent N)
+        n: Option<usize>,
+    },
+    /// Show only Triggered reminders
+    #[command(alias = "trg")]
+    Triggered {
+        /// Optional limit (most recent N)
+        n: Option<usize>,
+    },
+    /// Show all reminders in chronological order
+    #[command(aliases = &["all", "everything"])]
+    Log {
+        /// Optional limit (most recent N)
+        n: Option<usize>,
+    },
     /// View detailed info for reminder(s)
     Info {
         /// Reminder IDs to inspect
@@ -140,9 +167,13 @@ pub fn handle_config_command(cmd: ConfigCommands, config: &mut Config) -> Result
 
 /// Handles inspection of specific reminders by ID
 async fn handle_info_command(ids: Vec<ReminderId>, config: &Config) -> Result<()> {
-    let response = send_ipc(Request::List { all: true }).await?;
+    let response = send_ipc(Request::List {
+        filter: ListFilter::All,
+        limit: None,
+    })
+    .await?;
     let existing_reminders = match response {
-        Response::List(list) => list,
+        Response::List { reminders, .. } => reminders,
         Response::Error(err) => {
             eprintln!("✗ Error: {}", err);
             return Ok(());
@@ -191,15 +222,76 @@ pub async fn handle_command(cmd: Commands, config: &mut Config) -> Result<()> {
     match cmd {
         Commands::Daemon => { /* handled in main */ }
         Commands::Config { command } => handle_config_command(command, config)?,
-        Commands::Ls { all } => send_request(Request::List { all }, config).await?,
-        Commands::History => send_request(Request::List { all: true }, config).await?,
+        Commands::Ls { n } => {
+            send_request(
+                Request::List {
+                    filter: ListFilter::Active,
+                    limit: Some(n.unwrap_or(config.limit)),
+                },
+                config,
+            )
+            .await?
+        }
+        Commands::Active { n } => {
+            send_request(
+                Request::List {
+                    filter: ListFilter::Active,
+                    limit: n,
+                },
+                config,
+            )
+            .await?
+        }
+        Commands::History { n } => {
+            send_request(
+                Request::List {
+                    filter: ListFilter::History,
+                    limit: n,
+                },
+                config,
+            )
+            .await?
+        }
+        Commands::Missed { n } => {
+            send_request(
+                Request::List {
+                    filter: ListFilter::Missed,
+                    limit: n,
+                },
+                config,
+            )
+            .await?
+        }
+        Commands::Triggered { n } => {
+            send_request(
+                Request::List {
+                    filter: ListFilter::Triggered,
+                    limit: n,
+                },
+                config,
+            )
+            .await?
+        }
+        Commands::Log { n } => {
+            send_request(
+                Request::List {
+                    filter: ListFilter::All,
+                    limit: n,
+                },
+                config,
+            )
+            .await?
+        }
         Commands::Info { ids } => handle_info_command(ids, config).await?,
         Commands::Clean => send_request(Request::Clean, config).await?,
         Commands::Rm { ids, yes } => {
-            // Request the full list (all: true) to validate the ID from the history
-            let response = send_ipc(Request::List { all: true }).await?;
+            let response = send_ipc(Request::List {
+                filter: ListFilter::All,
+                limit: None,
+            })
+            .await?;
             let existing_reminders = match response {
-                Response::List(list) => list,
+                Response::List { reminders, .. } => reminders,
                 Response::Error(err) => {
                     eprintln!("✗ Error: {}", err);
                     return Ok(());
