@@ -6,7 +6,7 @@ use crate::ui;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use std::collections::{HashMap, HashSet};
-use std::io::Write;
+use std::io::{self, Write};
 
 #[derive(Parser, Debug)]
 #[command(name = "rmd", version, about = "Lightweight persistent reminders")]
@@ -95,8 +95,12 @@ pub enum Commands {
         #[arg(required = true, num_args = 1..)]
         ids: Vec<ReminderId>,
     },
-    /// Purge finished and missed reminders from state
-    Clean,
+    /// Purge finished (triggered/missed) reminders from state
+    Clean {
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
     /// Remove reminders by ID
     Rm {
         /// Reminder IDs to delete
@@ -109,6 +113,23 @@ pub enum Commands {
     },
     /// Stop the daemon
     Stop,
+}
+
+/// Universal helper for interactive user confirmations.
+/// If `auto_yes` is true (e.g., -y/--yes flag passed), returns true immediately.
+fn prompt_confirm(message: &str, auto_yes: bool) -> bool {
+    if auto_yes {
+        return true;
+    }
+
+    print!("{} [y/N]: ", message);
+    let _ = io::stdout().flush(); // Flush stdout immediately since the prompt lacks a newline
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap_or_default();
+
+    let trimmed = input.trim().to_lowercase();
+    trimmed == "y" || trimmed == "yes"
 }
 
 /// Separates time specification and reminder message from raw positional arguments
@@ -143,18 +164,10 @@ pub fn handle_config_command(cmd: ConfigCommands, config: &mut Config) -> Result
             println!("✓ Default display limit set to {}", limit);
         }
         ConfigCommands::Reset { yes } => {
-            if !yes {
-                print!("Reset all configuration settings to defaults? [y/N]: ");
-                std::io::stdout().flush()?;
-
-                let mut input = String::new();
-                std::io::stdin().read_line(&mut input)?;
-
-                let reply = input.trim().to_lowercase();
-                if reply != "y" && reply != "yes" {
-                    println!("Canceled.");
-                    return Ok(());
-                }
+            let msg = "Reset all configuration settings to defaults?";
+            if !prompt_confirm(msg, yes) {
+                println!("Canceled.");
+                return Ok(());
             }
 
             *config = Config::default();
@@ -283,7 +296,15 @@ pub async fn handle_command(cmd: Commands, config: &mut Config) -> Result<()> {
             .await?
         }
         Commands::Info { ids } => handle_info_command(ids, config).await?,
-        Commands::Clean => send_request(Request::Clean, config).await?,
+        Commands::Clean { yes } => {
+            let msg = "Delete all triggered and missed reminders?";
+            if !prompt_confirm(msg, yes) {
+                println!("Canceled.");
+                return Ok(());
+            }
+
+            send_request(Request::Clean, config).await?
+        }
         Commands::Rm { ids, yes } => {
             let response = send_ipc(Request::List {
                 filter: ListFilter::All,
@@ -321,26 +342,17 @@ pub async fn handle_command(cmd: Commands, config: &mut Config) -> Result<()> {
             }
 
             // Request confirmation ONLY for found IDs
-            if !yes {
-                let ids_str = found_ids
-                    .iter()
-                    .map(|id| id.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let prompt_msg = format!("Delete reminder(s) [{}]? [y/N]: ", ids_str);
-
-                print!("{}", prompt_msg);
-                std::io::stdout().flush()?;
-
-                let mut input = String::new();
-                std::io::stdin().read_line(&mut input)?;
-
-                let reply = input.trim().to_lowercase();
-                if reply != "y" && reply != "yes" {
-                    println!("Canceled.");
-                    return Ok(());
-                }
+            let ids_str = found_ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let msg = format!("Delete reminder(s) [{}]?", ids_str);
+            if !prompt_confirm(&msg, yes) {
+                println!("Canceled.");
+                return Ok(());
             }
+
             send_request(Request::Remove { ids: found_ids }, config).await?;
         }
         Commands::Stop => send_request(Request::Stop, config).await?,

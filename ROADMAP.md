@@ -73,7 +73,7 @@
 - [x] UI & Table Rendering Improvements:
   - [x] Adjust `LEFT` column in history tables (`history`, `triggered`, `missed`): replace with `ELAPSED` or disable entirely instead of rendering static dashes (consider implementing flexible column management in `print_reminders_table`)
   - [x] Enable soft line wrapping for the `VALUE` column in the detailed view (`info`) instead of truncating text to terminal width
-- [ ] Add interactive confirmation prompt to `rmd clean` and refactor prompt logic into a unified helper shared with `rm` and `config reset`
+- [x] Add interactive confirmation prompt to `rmd clean` and refactor prompt logic into a unified helper shared with `rm` and `config reset`
 - [ ] Add `rmd config show` subcommand to display active settings loaded from `config.json`
 
 ## Phase 7: Release & Distribution
