@@ -9,13 +9,15 @@ use std::path::PathBuf;
 pub struct Config {
     pub time_format: TimeFormat,
     pub limit: usize,
+    pub default_time: String,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             time_format: TimeFormat::Human,
-            limit: 5, // 0 = no limit (or other default value)
+            limit: 5,
+            default_time: "09:00".to_string(),
         }
     }
 }

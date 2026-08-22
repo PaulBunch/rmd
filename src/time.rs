@@ -32,13 +32,17 @@ const KEYWORDS: [&str; 16] = [
 ];
 
 /// Parses a time specifier string into a Unix timestamp in seconds.
-pub fn parse_time(input: &str) -> Result<i64> {
+pub fn parse_time(input: &str, default_time: &str) -> Result<i64> {
     let now = Local::now();
-    parse_time_relative_to(input, now)
+    parse_time_relative_to(input, now, default_time)
 }
 
 /// Core parsing logic with an explicit reference time (useful for deterministic unit testing).
-pub fn parse_time_relative_to(input: &str, now: DateTime<Local>) -> Result<i64> {
+pub fn parse_time_relative_to(
+    input: &str,
+    now: DateTime<Local>,
+    default_time: &str,
+) -> Result<i64> {
     let s = input.trim();
     if s.is_empty() {
         return Err(anyhow!("Empty time specification"));
@@ -53,7 +57,7 @@ pub fn parse_time_relative_to(input: &str, now: DateTime<Local>) -> Result<i64> 
     }
 
     // 2. Try parsing as absolute or keyword date/time
-    let target_dt = parse_absolute_or_keyword(s, now)?;
+    let target_dt = parse_absolute_or_keyword(s, now, default_time)?;
     let target_ts = target_dt.timestamp();
 
     // Reject past timestamps with explicit error message
@@ -144,12 +148,16 @@ fn parse_relative_duration(input: &str) -> Result<i64> {
 // --- Absolute / Keyword Parsers (Refactored Chain of Responsibility) ---
 
 /// Main dispatcher for absolute date/time parsing.
-fn parse_absolute_or_keyword(input: &str, now: DateTime<Local>) -> Result<DateTime<Local>> {
+fn parse_absolute_or_keyword(
+    input: &str,
+    now: DateTime<Local>,
+    default_time: &str,
+) -> Result<DateTime<Local>> {
     let s = input.trim();
 
-    try_parse_custom_absolute(s, &now)
+    try_parse_custom_absolute(s, &now, default_time)
         .or_else(|| try_parse_time_only(s, &now))
-        .or_else(|| try_parse_keyword_or_weekday(s, &now))
+        .or_else(|| try_parse_keyword_or_weekday(s, &now, default_time))
         .ok_or_else(|| anyhow!("Invalid date/time specifier: '{}'", input))
 }
 
@@ -157,7 +165,11 @@ fn parse_absolute_or_keyword(input: &str, now: DateTime<Local>) -> Result<DateTi
 /// - ISO-like:   `[YYYY-]MM-DD` (separated by `-`)
 /// - EU/RU-like: `DD.MM[.YYYY]` (separated by `.` or `/`)
 /// Supports flexible leading zeros and optional year.
-fn try_parse_custom_absolute(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>> {
+fn try_parse_custom_absolute(
+    s: &str,
+    now: &DateTime<Local>,
+    default_time: &str,
+) -> Option<DateTime<Local>> {
     // 1. Split date and time portions
     // Normal separators between date and time: ' ', 'T', 't', '@'
     let parts: Vec<&str> = s
@@ -172,7 +184,7 @@ fn try_parse_custom_absolute(s: &str, now: &DateTime<Local>) -> Option<DateTime<
     let time_str = if parts.len() == 2 {
         parts[1]
     } else {
-        "00:00:00"
+        default_time
     };
 
     // 2. Parse time portion (H:M[:S])
@@ -302,7 +314,11 @@ fn try_parse_time_only(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>
 }
 
 /// Parses keyword or weekday combinations (e.g., "tomorrow 15:00", "mon09:00", "friday@18:30").
-fn try_parse_keyword_or_weekday(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>> {
+fn try_parse_keyword_or_weekday(
+    s: &str,
+    now: &DateTime<Local>,
+    default_time: &str,
+) -> Option<DateTime<Local>> {
     let s_lower = s.to_lowercase();
 
     // Keyword / Weekday + Time combinations
@@ -316,7 +332,14 @@ fn try_parse_keyword_or_weekday(s: &str, now: &DateTime<Local>) -> Option<DateTi
             let rest_clean =
                 rest.trim_start_matches(|c: char| c == '@' || c == ':' || c.is_whitespace());
 
-            let nt = parse_raw_time(rest_clean).ok()?;
+            // If the keyword is alone (e.g., "tomorrow"), apply the default time
+            let time_str = if rest_clean.is_empty() {
+                default_time
+            } else {
+                rest_clean
+            };
+
+            let nt = parse_raw_time(time_str).ok()?;
             let target_date = resolve_keyword_date(kw, nt, now)?;
             let ndt = target_date.and_hms_opt(nt.hour(), nt.minute(), nt.second())?;
 
@@ -406,27 +429,27 @@ mod tests {
         let now = ref_time();
 
         assert_eq!(
-            parse_time_relative_to("+10m", now).unwrap(),
+            parse_time_relative_to("+10m", now, "09:00").unwrap(),
             now.timestamp() + 600
         );
         assert_eq!(
-            parse_time_relative_to("10m", now).unwrap(),
+            parse_time_relative_to("10m", now, "09:00").unwrap(),
             now.timestamp() + 600
         );
         assert_eq!(
-            parse_time_relative_to("2h 30m", now).unwrap(),
+            parse_time_relative_to("2h 30m", now, "09:00").unwrap(),
             now.timestamp() + 9000
         );
         assert_eq!(
-            parse_time_relative_to("1w", now).unwrap(),
+            parse_time_relative_to("1w", now, "09:00").unwrap(),
             now.timestamp() + SEC_PER_WEEK
         );
         assert_eq!(
-            parse_time_relative_to("2mo", now).unwrap(),
+            parse_time_relative_to("2mo", now, "09:00").unwrap(),
             now.timestamp() + 2 * SEC_PER_MONTH
         );
         assert_eq!(
-            parse_time_relative_to("1y", now).unwrap(),
+            parse_time_relative_to("1y", now, "09:00").unwrap(),
             now.timestamp() + SEC_PER_YEAR
         );
     }
@@ -436,7 +459,7 @@ mod tests {
         let now = ref_time(); // 2026-08-09 12:00:00
 
         // Future time today
-        let t1 = parse_time_relative_to("15:30", now).unwrap();
+        let t1 = parse_time_relative_to("15:30", now, "09:00").unwrap();
         let dt1 = now.timezone().timestamp_opt(t1, 0).unwrap();
         assert_eq!(
             dt1.format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -444,7 +467,7 @@ mod tests {
         );
 
         // Past time today -> rolls over to tomorrow
-        let t2 = parse_time_relative_to("09:00", now).unwrap();
+        let t2 = parse_time_relative_to("09:00", now, "09:00").unwrap();
         let dt2 = now.timezone().timestamp_opt(t2, 0).unwrap();
         assert_eq!(
             dt2.format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -457,7 +480,7 @@ mod tests {
         let now = ref_time(); // 2026-08-09 12:00:00 (Sunday)
 
         // Spaced
-        let t_tom = parse_time_relative_to("tomorrow 15:00", now).unwrap();
+        let t_tom = parse_time_relative_to("tomorrow 15:00", now, "09:00").unwrap();
         assert_eq!(
             now.timezone()
                 .timestamp_opt(t_tom, 0)
@@ -468,15 +491,15 @@ mod tests {
         );
 
         // Concatenated
-        let t_tom_cat = parse_time_relative_to("tomorrow15:00", now).unwrap();
+        let t_tom_cat = parse_time_relative_to("tomorrow15:00", now, "09:00").unwrap();
         assert_eq!(t_tom, t_tom_cat);
 
         // @-separated
-        let t_tom_at = parse_time_relative_to("tomorrow@15:00", now).unwrap();
+        let t_tom_at = parse_time_relative_to("tomorrow@15:00", now, "09:00").unwrap();
         assert_eq!(t_tom, t_tom_at);
 
         // Weekdays concatenated
-        let t_mon = parse_time_relative_to("mon09:00", now).unwrap();
+        let t_mon = parse_time_relative_to("mon09:00", now, "09:00").unwrap();
         assert_eq!(
             now.timezone()
                 .timestamp_opt(t_mon, 0)
@@ -486,7 +509,7 @@ mod tests {
             "2026-08-10 09:00"
         );
 
-        let t_fri = parse_time_relative_to("friday18:30", now).unwrap();
+        let t_fri = parse_time_relative_to("friday18:30", now, "09:00").unwrap();
         assert_eq!(
             now.timezone()
                 .timestamp_opt(t_fri, 0)
@@ -497,7 +520,7 @@ mod tests {
         );
 
         // Spaced relative time
-        let t_multi = parse_time_relative_to("2h 30m", now).unwrap();
+        let t_multi = parse_time_relative_to("2h 30m", now, "09:00").unwrap();
         assert_eq!(t_multi, now.timestamp() + 9000);
     }
 
@@ -506,7 +529,7 @@ mod tests {
         let now = ref_time();
 
         // Standard space-separated
-        let t1 = parse_time_relative_to("2026-08-15 14:00", now).unwrap();
+        let t1 = parse_time_relative_to("2026-08-15 14:00", now, "09:00").unwrap();
         assert_eq!(
             now.timezone()
                 .timestamp_opt(t1, 0)
@@ -517,9 +540,9 @@ mod tests {
         );
 
         // ISO with 'T', 't', and '@' separator
-        let t2 = parse_time_relative_to("2026-08-15T14:00", now).unwrap();
-        let t3 = parse_time_relative_to("2026-08-15t14:00:00", now).unwrap();
-        let t4 = parse_time_relative_to("2026-08-15@14:00", now).unwrap();
+        let t2 = parse_time_relative_to("2026-08-15T14:00", now, "09:00").unwrap();
+        let t3 = parse_time_relative_to("2026-08-15t14:00:00", now, "09:00").unwrap();
+        let t4 = parse_time_relative_to("2026-08-15@14:00", now, "09:00").unwrap();
 
         assert_eq!(t1, t2);
         assert_eq!(t1, t3);
@@ -531,32 +554,32 @@ mod tests {
         let now = ref_time(); // 2026-08-09 12:00:00 in Local timezone
 
         // Flexible zero padding
-        let t1 = parse_time_relative_to("2026-8-10 9:00", now).unwrap();
-        let t2 = parse_time_relative_to("2026-08-10 09:00", now).unwrap();
+        let t1 = parse_time_relative_to("2026-8-10 9:00", now, "09:00").unwrap();
+        let t2 = parse_time_relative_to("2026-08-10 09:00", now, "09:00").unwrap();
         assert_eq!(t1, t2);
 
         // EU/RU dot format with flexible zeros and optional year
-        let t_dot1 = parse_time_relative_to("10.8.2026 9:05", now).unwrap();
-        let t_dot2 = parse_time_relative_to("10.08.2026 09:05", now).unwrap();
+        let t_dot1 = parse_time_relative_to("10.8.2026 9:05", now, "09:00").unwrap();
+        let t_dot2 = parse_time_relative_to("10.08.2026 09:05", now, "09:00").unwrap();
         assert_eq!(t_dot1, t_dot2);
 
         // Slash format (EU/RU style: DD/MM/YYYY)
-        let t_slash = parse_time_relative_to("10/8/2026 9:05", now).unwrap();
+        let t_slash = parse_time_relative_to("10/8/2026 9:05", now, "09:00").unwrap();
         assert_eq!(t_dot1, t_slash);
 
         // 2-digit year support
-        let t_2digit_dot = parse_time_relative_to("10.8.26 9:05", now).unwrap();
-        let t_2digit_slash = parse_time_relative_to("10/8/26 9:05", now).unwrap();
+        let t_2digit_dot = parse_time_relative_to("10.8.26 9:05", now, "09:00").unwrap();
+        let t_2digit_slash = parse_time_relative_to("10/8/26 9:05", now, "09:00").unwrap();
         assert_eq!(t_dot1, t_2digit_dot);
         assert_eq!(t_dot1, t_2digit_slash);
 
         // No year (auto-detect current/next year)
         // 10.08 is in the future relative to 2026-08-09, so it stays 2026
-        let t_noyear = parse_time_relative_to("10.8 9:05", now).unwrap();
+        let t_noyear = parse_time_relative_to("10.8 9:05", now, "09:00").unwrap();
         assert_eq!(t_dot1, t_noyear);
 
         // 08.08 (August 8th) is in the past for 2026-08-09, so it rolls over to 2027
-        let t_past = parse_time_relative_to("8.8 09:00", now).unwrap();
+        let t_past = parse_time_relative_to("8.8 09:00", now, "09:00").unwrap();
         let dt_past = now.timezone().timestamp_opt(t_past, 0).unwrap();
         assert_eq!(
             dt_past.format("%Y-%m-%d %H:%M").to_string(),
@@ -564,27 +587,54 @@ mod tests {
         );
 
         // No year for ISO format (MM-DD)
-        let t_iso_noyear = parse_time_relative_to("8-10 9:00", now).unwrap();
+        let t_iso_noyear = parse_time_relative_to("8-10 9:00", now, "09:00").unwrap();
         assert_eq!(t1, t_iso_noyear);
 
         // Rejection of invalid cross-formats:
         // 1. EU format with dashes (e.g. DD-MM-YYYY) should fail or be rejected because dashes enforce ISO
-        assert!(parse_time_relative_to("10-08-2026 09:00", now).is_err());
+        assert!(parse_time_relative_to("10-08-2026 09:00", now, "09:00").is_err());
 
         // 2. ISO format with dots (e.g. YYYY.MM.DD) should fail because dots enforce EU/RU
-        assert!(parse_time_relative_to("2026.08.10 09:00", now).is_err());
+        assert!(parse_time_relative_to("2026.08.10 09:00", now, "09:00").is_err());
     }
 
     #[test]
     fn test_past_time_rejection() {
         let now = ref_time(); // 2026-08-09 12:00:00
 
-        let res = parse_time_relative_to("today 09:00", now);
+        let res = parse_time_relative_to("today 09:00", now, "09:00");
         assert!(res.is_err());
         assert!(
             res.unwrap_err()
                 .to_string()
                 .contains("Target time is in the past")
+        );
+    }
+
+    #[test]
+    fn test_default_time_applied_to_dates_and_keywords() {
+        let now = ref_time(); // 2026-08-09 12:00:00
+
+        // Keyword without time utilizes the default time (e.g. 09:00)
+        let t_tom = parse_time_relative_to("tomorrow", now, "09:00").unwrap();
+        assert_eq!(
+            now.timezone()
+                .timestamp_opt(t_tom, 0)
+                .unwrap()
+                .format("%Y-%m-%d %H:%M")
+                .to_string(),
+            "2026-08-10 09:00"
+        );
+
+        // Date without time utilizes a custom default time (e.g. 14:30)
+        let t_iso = parse_time_relative_to("2026-08-15", now, "14:30").unwrap();
+        assert_eq!(
+            now.timezone()
+                .timestamp_opt(t_iso, 0)
+                .unwrap()
+                .format("%Y-%m-%d %H:%M")
+                .to_string(),
+            "2026-08-15 14:30"
         );
     }
 }

@@ -41,6 +41,11 @@ pub enum ConfigCommands {
         /// Maximum number of active reminders to show
         limit: usize,
     },
+    /// Set default time for date-only specifications (e.g., 09:00)
+    DefaultTime {
+        #[arg(value_name = "HH:MM")]
+        time: String,
+    },
     /// Reset all configuration settings to default values
     Reset {
         /// Skip confirmation prompt
@@ -137,11 +142,11 @@ fn prompt_confirm(message: &str, auto_yes: bool) -> bool {
 }
 
 /// Separates time specification and reminder message from raw positional arguments
-pub fn parse_time_and_message(args: &[String]) -> Result<(String, String)> {
+pub fn parse_time_and_message(args: &[String], default_time: &str) -> Result<(String, String)> {
     // Iterate backwards from full length down to 1 token to find the longest valid time spec
     for i in (1..=args.len()).rev() {
         let candidate_time = args[..i].join(" ");
-        match parse_time(&candidate_time) {
+        match parse_time(&candidate_time, default_time) {
             Ok(_) => {
                 let message = args[i..].join(" ");
                 if message.trim().is_empty() {
@@ -197,6 +202,15 @@ pub fn handle_config_command(cmd: ConfigCommands, config: &mut Config) -> Result
             config.limit = limit;
             save_config(config)?;
             println!("✓ Default display limit set to {}", limit);
+        }
+        ConfigCommands::DefaultTime { time } => {
+            // Validate the HH:MM format using chrono before saving
+            if chrono::NaiveTime::parse_from_str(&time, "%H:%M").is_err() {
+                anyhow::bail!("Invalid time format. Please use HH:MM (e.g., 09:00).");
+            }
+            config.default_time = time.clone();
+            save_config(config)?;
+            println!("✓ Default time set to '{}'", time);
         }
         ConfigCommands::Reset { yes } => {
             let msg = "Reset all configuration settings to defaults?";
@@ -404,7 +418,7 @@ pub async fn handle_raw_args(raw_args: &[String], config: &Config) -> Result<()>
     {
         handle_info_command(ids, config).await?;
     } else {
-        match parse_time_and_message(raw_args) {
+        match parse_time_and_message(raw_args, &config.default_time) {
             Ok((time_spec, message)) => {
                 send_request(Request::Add { time_spec, message }, config).await?;
             }
@@ -429,7 +443,7 @@ mod tests {
     #[test]
     fn test_parse_simple_time_and_message() {
         let args = to_vec(["+5m", "Buy", "milk"]);
-        let (time_spec, msg) = parse_time_and_message(&args).unwrap();
+        let (time_spec, msg) = parse_time_and_message(&args, "09:00").unwrap();
         assert_eq!(time_spec, "+5m");
         assert_eq!(msg, "Buy milk");
     }
@@ -437,7 +451,7 @@ mod tests {
     #[test]
     fn test_parse_spaced_keyword_date_and_time() {
         let args = to_vec(["tomorrow", "15:00", "Call", "mom"]);
-        let (time_spec, msg) = parse_time_and_message(&args).unwrap();
+        let (time_spec, msg) = parse_time_and_message(&args, "09:00").unwrap();
         assert_eq!(time_spec, "tomorrow 15:00");
         assert_eq!(msg, "Call mom");
     }
@@ -445,7 +459,7 @@ mod tests {
     #[test]
     fn test_parse_multi_part_relative_time() {
         let args = to_vec(["2h", "30m", "Check", "the", "oven"]);
-        let (time_spec, msg) = parse_time_and_message(&args).unwrap();
+        let (time_spec, msg) = parse_time_and_message(&args, "09:00").unwrap();
         assert_eq!(time_spec, "2h 30m");
         assert_eq!(msg, "Check the oven");
     }
@@ -453,7 +467,7 @@ mod tests {
     #[test]
     fn test_reject_empty_message() {
         let args = to_vec(["+10m"]);
-        let res = parse_time_and_message(&args);
+        let res = parse_time_and_message(&args, "09:00");
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("cannot be empty"));
     }
@@ -461,7 +475,7 @@ mod tests {
     #[test]
     fn test_reject_invalid_time() {
         let args = to_vec(["invalid", "time", "argument"]);
-        let res = parse_time_and_message(&args);
+        let res = parse_time_and_message(&args, "09:00");
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("Invalid time format"));
     }
@@ -469,7 +483,7 @@ mod tests {
     #[test]
     fn test_reject_past_time() {
         let args = to_vec(["2020-01-01", "09:00", "Doctor", "appointment"]);
-        let res = parse_time_and_message(&args);
+        let res = parse_time_and_message(&args, "09:00");
         assert!(res.is_err());
         assert!(
             res.unwrap_err()

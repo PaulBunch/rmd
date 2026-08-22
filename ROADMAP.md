@@ -75,13 +75,17 @@
   - [x] Enable soft line wrapping for the `VALUE` column in the detailed view (`info`) instead of truncating text to terminal width
 - [x] Add interactive confirmation prompt to `rmd clean` and refactor prompt logic into a unified helper shared with `rm` and `config reset`
 - [x] Add `rmd config show` subcommand to display active settings loaded from `config.json`
+- [x] Add configurable default time for date-only specifications:
+  - [x] Introduce `default_time` setting in `config.json` (e.g., `"09:00"`) to replace fallback midnight (`00:00:00`) when time is omitted
+  - [x] Add `rmd config default-time <HH:MM>` subcommand to customize the default trigger time
+- [ ] Extend time parser in `time.rs` to support 12-hour format with AM/PM indicators (e.g., `02:00 PM`, `2pm`)
 
 ## Phase 7: Release & Distribution
 
 - [x] Investigate Termux repository inclusion / packaging
-- [ ] Initial GitHub repository release
-- [ ] Create AUR package for Arch Linux
+- [x] Initial GitHub repository release
 - [ ] Submit "Show HN" post on Hacker News
+- [ ] Create AUR package for Arch Linux
 
 ## Phase 8: Termux / Android Support
 

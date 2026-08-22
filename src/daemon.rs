@@ -163,29 +163,32 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) ->
             should_stop = true;
             Response::Ok("Stopping rmd daemon...".to_string())
         }
-        Request::Add { time_spec, message } => match parse_time(&time_spec) {
-            Ok(trigger_at) => {
-                let mut alloc = IdAllocator::new(reminders, false);
-                let id = ReminderId::Active(alloc.next_id());
-                let reminder = Reminder {
-                    id,
-                    trigger_at,
-                    message,
-                    status: Status::Active,
-                };
-                reminders.push(reminder.clone());
+        Request::Add { time_spec, message } => {
+            let config = load_config();
+            match parse_time(&time_spec, &config.default_time) {
+                Ok(trigger_at) => {
+                    let mut alloc = IdAllocator::new(reminders, false);
+                    let id = ReminderId::Active(alloc.next_id());
+                    let reminder = Reminder {
+                        id,
+                        trigger_at,
+                        message,
+                        status: Status::Active,
+                    };
+                    reminders.push(reminder.clone());
 
-                // Sort by trigger time:
-                reminders.sort_by_key(|r| r.trigger_at);
+                    // Sort by trigger time:
+                    reminders.sort_by_key(|r| r.trigger_at);
 
-                if let Err(e) = save_reminders(reminders) {
-                    Response::Error(format!("Failed to save state: {}", e))
-                } else {
-                    Response::Added(reminder)
+                    if let Err(e) = save_reminders(reminders) {
+                        Response::Error(format!("Failed to save state: {}", e))
+                    } else {
+                        Response::Added(reminder)
+                    }
                 }
+                Err(e) => Response::Error(format!("Invalid time format: {}", e)),
             }
-            Err(e) => Response::Error(format!("Invalid time format: {}", e)),
-        },
+        }
         Request::List { filter, limit } => {
             let mut list: Vec<Reminder> = reminders
                 .iter()
