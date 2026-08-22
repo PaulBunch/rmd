@@ -147,35 +147,139 @@ fn parse_relative_duration(input: &str) -> Result<i64> {
 fn parse_absolute_or_keyword(input: &str, now: DateTime<Local>) -> Result<DateTime<Local>> {
     let s = input.trim();
 
-    try_parse_iso(s, &now)
-        .or_else(|| try_parse_date_only(s, &now))
+    try_parse_custom_absolute(s, &now)
         .or_else(|| try_parse_time_only(s, &now))
         .or_else(|| try_parse_keyword_or_weekday(s, &now))
         .ok_or_else(|| anyhow!("Invalid date/time specifier: '{}'", input))
 }
 
-/// Parses full ISO/Compound Datetime: "YYYY-MM-DD HH:MM:SS", "YYYY-MM-DDTHH:MM", "YYYY-MM-DD@HH:MM"
-fn try_parse_iso(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>> {
-    let s_normalized = if s.len() >= 11 && matches!(s.as_bytes()[10], b'T' | b't' | b'@') {
-        let mut string = s.to_string();
-        string.replace_range(10..11, " ");
-        string
+/// Helper to parse custom formats of absolute dates:
+/// - ISO-like:   `[YYYY-]MM-DD` (separated by `-`)
+/// - EU/RU-like: `DD.MM[.YYYY]` (separated by `.` or `/`)
+/// Supports flexible leading zeros and optional year.
+fn try_parse_custom_absolute(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>> {
+    // 1. Split date and time portions
+    // Normal separators between date and time: ' ', 'T', 't', '@'
+    let parts: Vec<&str> = s
+        .split(|c| matches!(c, ' ' | 'T' | 't' | '@'))
+        .filter(|p| !p.is_empty())
+        .collect();
+    if parts.is_empty() || parts.len() > 2 {
+        return None;
+    }
+
+    let date_str = parts[0];
+    let time_str = if parts.len() == 2 {
+        parts[1]
     } else {
-        s.to_string()
+        "00:00:00"
     };
 
-    NaiveDateTime::parse_from_str(&s_normalized, "%Y-%m-%d %H:%M:%S")
-        .or_else(|_| NaiveDateTime::parse_from_str(&s_normalized, "%Y-%m-%d %H:%M"))
-        .ok()
-        .and_then(|ndt| naive_to_local(&ndt, now).ok())
-}
+    // 2. Parse time portion (H:M[:S])
+    let time_parts: Vec<&str> = time_str.split(':').collect();
+    if time_parts.len() < 2 || time_parts.len() > 3 {
+        return None;
+    }
+    let hour: u32 = time_parts[0].parse().ok()?;
+    let min: u32 = time_parts[1].parse().ok()?;
+    let sec: u32 = if time_parts.len() == 3 {
+        time_parts[2].parse().ok()?
+    } else {
+        0
+    };
 
-/// Parses date-only inputs: "YYYY-MM-DD" (defaults to midnight 00:00:00).
-fn try_parse_date_only(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>> {
-    NaiveDate::parse_from_str(s, "%Y-%m-%d")
-        .ok()
-        .and_then(|nd| nd.and_hms_opt(0, 0, 0))
-        .and_then(|ndt| naive_to_local(&ndt, now).ok())
+    // 3. Parse date portion
+    // Detect separator
+    let sep = if date_str.contains('.') {
+        Some('.')
+    } else if date_str.contains('-') {
+        Some('-')
+    } else if date_str.contains('/') {
+        Some('/')
+    } else {
+        None
+    };
+
+    let sep = sep?;
+    let date_parts: Vec<&str> = date_str.split(sep).collect();
+    if date_parts.len() < 2 || date_parts.len() > 3 {
+        return None;
+    }
+
+    let mut year: i32 = now.year();
+    let month: u32;
+    let day: u32;
+
+    if sep == '.' {
+        // EU/RU format: DD.MM[.YYYY]
+        day = date_parts[0].parse().ok()?;
+        month = date_parts[1].parse().ok()?;
+        if date_parts.len() == 3 {
+            year = date_parts[2].parse().ok()?;
+            // Handle 2-digit years for convenience (e.g. .26 -> 2026)
+            if year < 100 {
+                year += 2000;
+            }
+        } else {
+            // Year omitted. Determine if it should be this year or next year
+            if let Some(d) = NaiveDate::from_ymd_opt(year, month, day) {
+                if let Some(ndt) = d.and_hms_opt(hour, min, sec) {
+                    if let Ok(dt) = naive_to_local(&ndt, now) {
+                        if dt <= *now {
+                            year += 1;
+                        }
+                    }
+                }
+            }
+        }
+    } else if sep == '/' {
+        // EU/RU format: DD/MM[/YYYY]
+        day = date_parts[0].parse().ok()?;
+        month = date_parts[1].parse().ok()?;
+        if date_parts.len() == 3 {
+            year = date_parts[2].parse().ok()?;
+            if year < 100 {
+                year += 2000;
+            }
+        } else {
+            // Year omitted. Determine if it should be this year or next year
+            if let Some(d) = NaiveDate::from_ymd_opt(year, month, day) {
+                if let Some(ndt) = d.and_hms_opt(hour, min, sec) {
+                    if let Ok(dt) = naive_to_local(&ndt, now) {
+                        if dt <= *now {
+                            year += 1;
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // Sep is '-'
+        // ISO format: [YYYY-]MM-DD
+        if date_parts.len() == 3 {
+            year = date_parts[0].parse().ok()?;
+            month = date_parts[1].parse().ok()?;
+            day = date_parts[2].parse().ok()?;
+        } else {
+            // MM-DD
+            month = date_parts[0].parse().ok()?;
+            day = date_parts[1].parse().ok()?;
+            // Year omitted. Determine if it should be this year or next year
+            if let Some(d) = NaiveDate::from_ymd_opt(year, month, day) {
+                if let Some(ndt) = d.and_hms_opt(hour, min, sec) {
+                    if let Ok(dt) = naive_to_local(&ndt, now) {
+                        if dt <= *now {
+                            year += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let target_date = NaiveDate::from_ymd_opt(year, month, day)?;
+    let target_ndt = target_date.and_hms_opt(hour, min, sec)?;
+    naive_to_local(&target_ndt, now).ok()
 }
 
 /// Parses time-only inputs: "HH:MM" or "HH:MM:SS".
@@ -281,6 +385,10 @@ fn naive_to_local(ndt: &NaiveDateTime, now: &DateTime<Local>) -> Result<DateTime
         .ok_or_else(|| anyhow!("Ambiguous or invalid local date/time"))
 }
 
+// =========================================================================
+// TESTS
+// =========================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,7 +437,7 @@ mod tests {
 
         // Future time today
         let t1 = parse_time_relative_to("15:30", now).unwrap();
-        let dt1 = Local.timestamp_opt(t1, 0).unwrap();
+        let dt1 = now.timezone().timestamp_opt(t1, 0).unwrap();
         assert_eq!(
             dt1.format("%Y-%m-%d %H:%M:%S").to_string(),
             "2026-08-09 15:30:00"
@@ -337,7 +445,7 @@ mod tests {
 
         // Past time today -> rolls over to tomorrow
         let t2 = parse_time_relative_to("09:00", now).unwrap();
-        let dt2 = Local.timestamp_opt(t2, 0).unwrap();
+        let dt2 = now.timezone().timestamp_opt(t2, 0).unwrap();
         assert_eq!(
             dt2.format("%Y-%m-%d %H:%M:%S").to_string(),
             "2026-08-10 09:00:00"
@@ -351,7 +459,7 @@ mod tests {
         // Spaced
         let t_tom = parse_time_relative_to("tomorrow 15:00", now).unwrap();
         assert_eq!(
-            Local
+            now.timezone()
                 .timestamp_opt(t_tom, 0)
                 .unwrap()
                 .format("%Y-%m-%d %H:%M")
@@ -370,7 +478,7 @@ mod tests {
         // Weekdays concatenated
         let t_mon = parse_time_relative_to("mon09:00", now).unwrap();
         assert_eq!(
-            Local
+            now.timezone()
                 .timestamp_opt(t_mon, 0)
                 .unwrap()
                 .format("%Y-%m-%d %H:%M")
@@ -380,7 +488,7 @@ mod tests {
 
         let t_fri = parse_time_relative_to("friday18:30", now).unwrap();
         assert_eq!(
-            Local
+            now.timezone()
                 .timestamp_opt(t_fri, 0)
                 .unwrap()
                 .format("%Y-%m-%d %H:%M")
@@ -400,7 +508,7 @@ mod tests {
         // Standard space-separated
         let t1 = parse_time_relative_to("2026-08-15 14:00", now).unwrap();
         assert_eq!(
-            Local
+            now.timezone()
                 .timestamp_opt(t1, 0)
                 .unwrap()
                 .format("%Y-%m-%d %H:%M")
@@ -416,6 +524,55 @@ mod tests {
         assert_eq!(t1, t2);
         assert_eq!(t1, t3);
         assert_eq!(t1, t4);
+    }
+
+    #[test]
+    fn test_flexible_formatting_and_no_leading_zeros() {
+        let now = ref_time(); // 2026-08-09 12:00:00 in Local timezone
+
+        // Flexible zero padding
+        let t1 = parse_time_relative_to("2026-8-10 9:00", now).unwrap();
+        let t2 = parse_time_relative_to("2026-08-10 09:00", now).unwrap();
+        assert_eq!(t1, t2);
+
+        // EU/RU dot format with flexible zeros and optional year
+        let t_dot1 = parse_time_relative_to("10.8.2026 9:05", now).unwrap();
+        let t_dot2 = parse_time_relative_to("10.08.2026 09:05", now).unwrap();
+        assert_eq!(t_dot1, t_dot2);
+
+        // Slash format (EU/RU style: DD/MM/YYYY)
+        let t_slash = parse_time_relative_to("10/8/2026 9:05", now).unwrap();
+        assert_eq!(t_dot1, t_slash);
+
+        // 2-digit year support
+        let t_2digit_dot = parse_time_relative_to("10.8.26 9:05", now).unwrap();
+        let t_2digit_slash = parse_time_relative_to("10/8/26 9:05", now).unwrap();
+        assert_eq!(t_dot1, t_2digit_dot);
+        assert_eq!(t_dot1, t_2digit_slash);
+
+        // No year (auto-detect current/next year)
+        // 10.08 is in the future relative to 2026-08-09, so it stays 2026
+        let t_noyear = parse_time_relative_to("10.8 9:05", now).unwrap();
+        assert_eq!(t_dot1, t_noyear);
+
+        // 08.08 (August 8th) is in the past for 2026-08-09, so it rolls over to 2027
+        let t_past = parse_time_relative_to("8.8 09:00", now).unwrap();
+        let dt_past = now.timezone().timestamp_opt(t_past, 0).unwrap();
+        assert_eq!(
+            dt_past.format("%Y-%m-%d %H:%M").to_string(),
+            "2027-08-08 09:00"
+        );
+
+        // No year for ISO format (MM-DD)
+        let t_iso_noyear = parse_time_relative_to("8-10 9:00", now).unwrap();
+        assert_eq!(t1, t_iso_noyear);
+
+        // Rejection of invalid cross-formats:
+        // 1. EU format with dashes (e.g. DD-MM-YYYY) should fail or be rejected because dashes enforce ISO
+        assert!(parse_time_relative_to("10-08-2026 09:00", now).is_err());
+
+        // 2. ISO format with dots (e.g. YYYY.MM.DD) should fail because dots enforce EU/RU
+        assert!(parse_time_relative_to("2026.08.10 09:00", now).is_err());
     }
 
     #[test]

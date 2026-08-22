@@ -141,12 +141,19 @@ pub fn parse_time_and_message(args: &[String]) -> Result<(String, String)> {
     // Iterate backwards from full length down to 1 token to find the longest valid time spec
     for i in (1..=args.len()).rev() {
         let candidate_time = args[..i].join(" ");
-        if parse_time(&candidate_time).is_ok() {
-            let message = args[i..].join(" ");
-            if message.trim().is_empty() {
-                anyhow::bail!("Reminder message cannot be empty");
+        match parse_time(&candidate_time) {
+            Ok(_) => {
+                let message = args[i..].join(" ");
+                if message.trim().is_empty() {
+                    anyhow::bail!("Reminder message cannot be empty");
+                }
+                return Ok((candidate_time, message));
             }
-            return Ok((candidate_time, message));
+            Err(err) => {
+                if err.to_string().contains("Target time is in the past") {
+                    return Err(err);
+                }
+            }
         }
     }
     anyhow::bail!("Invalid time format in arguments: '{}'", args.join(" "))
@@ -457,5 +464,17 @@ mod tests {
         let res = parse_time_and_message(&args);
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("Invalid time format"));
+    }
+
+    #[test]
+    fn test_reject_past_time() {
+        let args = to_vec(["2020-01-01", "09:00", "Doctor", "appointment"]);
+        let res = parse_time_and_message(&args);
+        assert!(res.is_err());
+        assert!(
+            res.unwrap_err()
+                .to_string()
+                .contains("Target time is in the past")
+        );
     }
 }

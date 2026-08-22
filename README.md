@@ -66,7 +66,7 @@ rmd fri 22:00 Shut up and go to bed
 
 # Absolute time & ISO / full dates
 rmd 18:30 Evening standup
-rmd 2026-08-10 09:00 Doctor appointment
+rmd 2026-8-10 9:00 Doctor appointment
 rmd 2026-12-01@10:00 VPS domain renewal
 
 # --- Inspection & Listing ---
