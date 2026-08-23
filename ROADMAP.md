@@ -84,7 +84,8 @@
 
 - [x] Investigate Termux repository inclusion / packaging
 - [x] Initial GitHub repository release
-- [ ] Submit "Show HN" post on Hacker News
+- [x] Submit "Show HN" post on Hacker News
+- [ ] Submit [awesome-cli-apps](https://github.com/agarrharr/awesome-cli-apps)
 - [ ] Create AUR package for Arch Linux
 
 ## Phase 8: Termux / Android Support
