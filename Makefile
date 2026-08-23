@@ -11,6 +11,7 @@ install: build
 	install -Dm755 target/release/rmd $(PREFIX)/bin/rmd
 	install -Dm644 extra/rmd.service $(HOME)/.config/systemd/user/rmd.service
 	systemctl --user daemon-reload
+	systemctl --user enable rmd.service
 
 uninstall:
 	systemctl --user stop rmd.service 2>/dev/null || true
