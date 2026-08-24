@@ -95,14 +95,14 @@
   - [x] Add `[[bin]]` with `name = "rmd"` so `cargo install rmd-cli` drops `rmd` in `$PATH`
   - [x] Create a crates.io account (GitHub login + verified email) and `cargo login`
   - [x] Update `README.md`
-- [ ] Ship prebuilt binaries via GitHub Releases (musl, no Rust toolchain required)
+- [x] Ship prebuilt binaries via GitHub Releases (musl, no Rust toolchain required)
   - [x] Add `.github/workflows/release.yml` (tag `v*` → `taiki-e/create-gh-release-action` + `taiki-e/upload-rust-binary-action`)
   - [x] Build `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`
   - [x] Attach `.tar.gz` + `sha256` and include `extra/rmd.service` in the archive
   - [x] Name assets for humans (`rmd-linux-x86_64.tar.gz`, `rmd-linux-aarch64.tar.gz`)
   - [x] Make the prebuilt binary the primary install path in `README.md` (`make install` second)
-  - [ ] Push a `v*` tag and verify the binary runs on a machine without Rust
-- [ ] Publish to [crates.io](https://crates.io) as `rmd-cli` (`cargo publish --dry-run`, then `cargo publish`)
+  - [x] Push a `v*` tag and verify the binary runs on a machine without Rust
+- [x] Publish to [crates.io](https://crates.io) as `rmd-cli` (`cargo publish --dry-run`, then `cargo publish`)
 - [ ] Announce the binary release
   - [ ] Dev.to `#showdev` post (cover = CLI screenshot; embed `{% github PaulBunch/rmd %}`)
   - [ ] 2026-08-25: post on X (screenshot; repo URL in the first reply)
