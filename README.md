@@ -27,19 +27,13 @@ Set one-shot reminders that survive reboots and show up as desktop notifications
 
 ### Using Makefile (Recommended)
 
-Builds the release binary, installs it to `~/.local/bin/`, and sets up the systemd user unit:
+Builds the release binary, installs it to `~/.local/bin/`, enables and immediately starts the systemd user service:
 
 ```bash
 make install
 ```
 
-Enable and start the daemon service:
-
-```bash
-systemctl --user enable --now rmd.service
-```
-
-To uninstall:
+To uninstall (stops running daemon and removes systemd unit):
 
 ```bash
 make uninstall
@@ -52,6 +46,7 @@ cargo build --release
 install -Dm755 target/release/rmd ~/.local/bin/rmd
 install -Dm644 extra/rmd.service ~/.config/systemd/user/rmd.service
 systemctl --user daemon-reload
+systemctl --user enable --now rmd.service
 ```
 
 ## Usage
@@ -150,6 +145,7 @@ Manage options via CLI:
 ```bash
 rmd config time-format human   # Set display time format (human, iso)
 rmd config limit 10            # Set default active reminders limit
+rmd config default-time 11:00  # Set default time for date-only specs
 rmd config reset               # Reset configuration to default values
 ```
 
