@@ -1,5 +1,6 @@
 [Unit]
 Description=rmd - Lightweight Reminder Daemon
+Documentation=https://github.com/PaulBunch/rmd
 After=graphical-session.target
 PartOf=graphical-session.target
 
@@ -10,4 +11,4 @@ Restart=on-failure
 RestartSec=5s
 
 [Install]
-WantedBy=graphical-session.target
+WantedBy=default.target
