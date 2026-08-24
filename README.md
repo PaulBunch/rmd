@@ -20,12 +20,26 @@ Set one-shot reminders that survive reboots and show up as desktop notifications
 ## Requirements
 
 - Linux
-- Rust toolchain (`cargo` 1.90+ to build from source)
+- Rust toolchain (`cargo` 1.85+ to build from source)
 - A D-Bus notification daemon (e.g., Fnott, Mako, Dunst, SwayNC, or DE built-in)
 
 ## Installation
 
-### Using Makefile (Recommended)
+### From crates.io
+
+```bash
+cargo install rmd-cli
+```
+
+> **Note:** The CLI auto-spawns the background daemon on any command. However, to ensure scheduled reminders trigger after a reboot *before* you open a terminal, install and enable the systemd unit:
+> ```bash
+> mkdir -p ~/.config/systemd/user
+> curl -sSL https://raw.githubusercontent.com/PaulBunch/rmd/main/extra/rmd.service -o ~/.config/systemd/user/rmd.service
+> systemctl --user daemon-reload
+> systemctl --user enable --now rmd.service
+> ```
+
+### Using Makefile (Recommended from Source)
 
 Builds the release binary, installs it to `~/.local/bin/`, enables and immediately starts the systemd user service:
 

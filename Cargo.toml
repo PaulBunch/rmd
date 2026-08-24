@@ -1,7 +1,17 @@
 [package]
-name = "rmd"
-version = "0.2.2"
+name = "rmd-cli"
+version = "0.2.3"
 edition = "2024"
+description = "Linux reminder daemon and CLI: one-shot D-Bus notifications that survive reboot"
+license = "MIT"
+repository = "https://github.com/PaulBunch/rmd"
+readme = "README.md"
+keywords = ["reminder", "linux", "notifications", "daemon", "dbus"]
+categories = ["command-line-utilities", "date-and-time"]
+
+[[bin]]
+name = "rmd"
+path = "src/main.rs"
 
 [dependencies]
 # Async runtime

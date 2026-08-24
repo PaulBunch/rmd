@@ -853,8 +853,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "rmd"
-version = "0.2.2"
+name = "rmd-cli"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "chrono",
