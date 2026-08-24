@@ -19,17 +19,36 @@ Set one-shot reminders that survive reboots and show up as desktop notifications
 
 ## Requirements
 
-- Linux
-- Rust toolchain (`cargo` 1.85+ to build from source)
+- Linux (x86_64 or aarch64)
 - A D-Bus notification daemon (e.g., Fnott, Mako, Dunst, SwayNC, or DE built-in)
 
 ## Installation
 
+### Prebuilt Binary (Recommended)
+
+Downloads the pre-compiled static `musl` binary and enables the systemd user service:
+
+```bash
+curl -sSfL https://github.com/PaulBunch/rmd/releases/latest/download/rmd-linux-x86_64.tar.gz | tar -xz
+install -Dm755 rmd ~/.local/bin/rmd
+install -Dm644 rmd.service ~/.config/systemd/user/rmd.service
+systemctl --user daemon-reload
+systemctl --user enable --now rmd.service
+```
+
+> **ARM64 / AArch64:** Replace `x86_64` with `aarch64` in the URL above.
+
+> If `rmd` is not found, add `~/.local/bin` (or `~/.cargo/bin`) to `PATH` and re-login.
+
 ### From crates.io
+
+Requires Rust 1.85+.
 
 ```bash
 cargo install rmd-cli
 ```
+
+> If `rmd` is not found, add `~/.local/bin` (or `~/.cargo/bin`) to `PATH` and re-login.
 
 > **Note:** The CLI auto-spawns the background daemon on any command. However, to ensure scheduled reminders trigger after a reboot *before* you open a terminal, install and enable the systemd unit:
 > ```bash
@@ -39,7 +58,9 @@ cargo install rmd-cli
 > systemctl --user enable --now rmd.service
 > ```
 
-### Using Makefile (Recommended from Source)
+### Building from Source (Requires Rust 1.85+)
+
+#### Using Makefile
 
 Builds the release binary, installs it to `~/.local/bin/`, enables and immediately starts the systemd user service:
 
@@ -47,13 +68,13 @@ Builds the release binary, installs it to `~/.local/bin/`, enables and immediate
 make install
 ```
 
-To uninstall (stops running daemon and removes systemd unit):
+To uninstall:
 
 ```bash
 make uninstall
 ```
 
-### Manual Installation
+#### Manual Build
 
 ```bash
 cargo build --release
