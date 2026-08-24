@@ -78,15 +78,37 @@
 - [x] Add configurable default time for date-only specifications:
   - [x] Introduce `default_time` setting in `config.json` (e.g., `"09:00"`) to replace fallback midnight (`00:00:00`) when time is omitted
   - [x] Add `rmd config default-time <HH:MM>` subcommand to customize the default trigger time
-- [ ] Extend time parser in `time.rs` to support 12-hour format with AM/PM indicators (e.g., `02:00 PM`, `2pm`)
+- [ ] Extend datetime parser in `time.rs` to support:
+  - [ ] 12-hour format with AM/PM indicators (e.g., `02:00 PM`, `2pm`)
+  - [ ] Full month names and standard abbreviations (case-insensitive, e.g., `November`, `Nov`)
+  - [ ] Short aliases for common relative dates (e.g., `today` / `tod`, `tomorrow` / `tmr` / `tom`)
 
 ## Phase 7: Release & Distribution
 
 - [x] Investigate Termux repository inclusion / packaging
 - [x] Initial GitHub repository release
 - [x] Submit "Show HN" post on Hacker News
-- [ ] Submit [awesome-cli-apps](https://github.com/agarrharr/awesome-cli-apps)
-- [ ] Create AUR package for Arch Linux
+- [x] Submit listing request to [Terminal Trove](https://terminaltrove.com)
+- [x] Prepare a publication on [crates.io](https://crates.io) under the name `rmd-cli` (binary name stays `rmd`; crate name `rmd` is taken)
+  - [x] Confirm the crate name is free (`cargo search rmd-cli`)
+  - [x] Fill `[package]` metadata in `Cargo.toml`: `name = "rmd-cli"`, `description`, `license = "MIT"`, `repository`, `readme`, `keywords`, `categories`
+  - [x] Add `[[bin]]` with `name = "rmd"` so `cargo install rmd-cli` drops `rmd` in `$PATH`
+  - [x] Create a crates.io account (GitHub login + verified email) and `cargo login`
+  - [x] Update `README.md`
+- [ ] Ship prebuilt binaries via GitHub Releases (musl, no Rust toolchain required)
+  - [ ] Add `.github/workflows/release.yml` (tag `v*` → `taiki-e/create-gh-release-action` + `taiki-e/upload-rust-binary-action`)
+  - [ ] Build `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`
+  - [ ] Attach `.tar.gz` + `sha256` and include `extra/rmd.service` in the archive
+  - [ ] Name assets for humans (`rmd-linux-x86_64.tar.gz`, `rmd-linux-aarch64.tar.gz`)
+  - [ ] Push a `v*` tag and verify the binary runs on a machine without Rust
+- [ ] Make the prebuilt binary the primary install path in `README.md` (`make install` second)
+- [ ] Publish to [crates.io](https://crates.io) as `rmd-cli` (`cargo publish --dry-run`, then `cargo publish`)
+- [ ] Announce the binary release
+  - [ ] Dev.to `#showdev` post (cover = CLI screenshot; embed `{% github PaulBunch/rmd %}`)
+  - [ ] 2026-08-25: post on X (screenshot; repo URL in the first reply)
+  - [ ] Submit an update to [This Week in Rust](https://github.com/rust-lang/this-week-in-rust)
+- [ ] Create AUR package for Arch Linux (AUR new-account registration closed as of 2026-08; revisit when open)
+- [ ] 2026-11-08: Submit [awesome-cli-apps](https://github.com/agarrharr/awesome-cli-apps)
 
 ## Phase 8: Termux / Android Support
 
