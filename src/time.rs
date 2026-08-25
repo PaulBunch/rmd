@@ -165,9 +165,11 @@ fn parse_absolute_or_keyword(
         .ok_or_else(|| anyhow!("Invalid date/time specifier: '{}'", input))
 }
 
-/// Helper to parse custom formats of absolute dates:
+/// Helper to parse custom formats of absolute dates.
+///
 /// - ISO-like:   `[YYYY-]MM-DD` (separated by `-`)
 /// - EU/RU-like: `DD.MM[.YYYY]` (separated by `.` or `/`)
+///
 /// Supports flexible leading zeros and optional year.
 fn try_parse_custom_absolute(
     s: &str,
@@ -177,7 +179,7 @@ fn try_parse_custom_absolute(
     let s_clean = s.trim();
 
     // 1. Separate date string and time string
-    let mut parts = s_clean.splitn(2, |c: char| c == ' ' || c == 'T' || c == 't' || c == '@');
+    let mut parts = s_clean.splitn(2, [' ', 'T', 't', '@']);
     let date_str = parts.next()?.trim();
     let rest_time = parts
         .next()
@@ -229,14 +231,12 @@ fn try_parse_custom_absolute(
             }
         } else {
             // Year omitted. Determine if it should be this year or next year
-            if let Some(d) = NaiveDate::from_ymd_opt(year, month, day) {
-                if let Some(ndt) = d.and_hms_opt(hour, min, sec) {
-                    if let Ok(dt) = naive_to_local(&ndt, now) {
-                        if dt <= *now {
-                            year += 1;
-                        }
-                    }
-                }
+            if let Some(d) = NaiveDate::from_ymd_opt(year, month, day)
+                && let Some(ndt) = d.and_hms_opt(hour, min, sec)
+                && let Ok(dt) = naive_to_local(&ndt, now)
+                && dt <= *now
+            {
+                year += 1;
             }
         }
     } else if sep == '/' {
@@ -250,14 +250,12 @@ fn try_parse_custom_absolute(
             }
         } else {
             // Year omitted. Determine if it should be this year or next year
-            if let Some(d) = NaiveDate::from_ymd_opt(year, month, day) {
-                if let Some(ndt) = d.and_hms_opt(hour, min, sec) {
-                    if let Ok(dt) = naive_to_local(&ndt, now) {
-                        if dt <= *now {
-                            year += 1;
-                        }
-                    }
-                }
+            if let Some(d) = NaiveDate::from_ymd_opt(year, month, day)
+                && let Some(ndt) = d.and_hms_opt(hour, min, sec)
+                && let Ok(dt) = naive_to_local(&ndt, now)
+                && dt <= *now
+            {
+                year += 1;
             }
         }
     } else {
@@ -272,14 +270,12 @@ fn try_parse_custom_absolute(
             month = date_parts[0].parse().ok()?;
             day = date_parts[1].parse().ok()?;
             // Year omitted. Determine if it should be this year or next year
-            if let Some(d) = NaiveDate::from_ymd_opt(year, month, day) {
-                if let Some(ndt) = d.and_hms_opt(hour, min, sec) {
-                    if let Ok(dt) = naive_to_local(&ndt, now) {
-                        if dt <= *now {
-                            year += 1;
-                        }
-                    }
-                }
+            if let Some(d) = NaiveDate::from_ymd_opt(year, month, day)
+                && let Some(ndt) = d.and_hms_opt(hour, min, sec)
+                && let Ok(dt) = naive_to_local(&ndt, now)
+                && dt <= *now
+            {
+                year += 1;
             }
         }
     }
@@ -296,7 +292,7 @@ fn try_parse_month_name_date(
     now: &DateTime<Local>,
     default_time: &str,
 ) -> Option<DateTime<Local>> {
-    let clean_s = s.replace(',', " ").replace('@', " ");
+    let clean_s = s.replace([',', '@'], " ");
     let tokens: Vec<&str> = clean_s.split_whitespace().collect();
     if tokens.is_empty() {
         return None;
@@ -350,15 +346,15 @@ fn try_parse_month_name_date(
     let mut year_opt: Option<i32> = None;
     let mut time_start_idx = next_token_idx;
 
-    if next_token_idx < tokens.len() {
-        if let Ok(y) = tokens[next_token_idx].parse::<i32>() {
-            if (1000..=9999).contains(&y) {
-                year_opt = Some(y);
-                time_start_idx = next_token_idx + 1;
-            } else if (0..100).contains(&y) {
-                year_opt = Some(2000 + y);
-                time_start_idx = next_token_idx + 1;
-            }
+    if next_token_idx < tokens.len()
+        && let Ok(y) = tokens[next_token_idx].parse::<i32>()
+    {
+        if (1000..=9999).contains(&y) {
+            year_opt = Some(y);
+            time_start_idx = next_token_idx + 1;
+        } else if (0..100).contains(&y) {
+            year_opt = Some(2000 + y);
+            time_start_idx = next_token_idx + 1;
         }
     }
 
@@ -377,14 +373,12 @@ fn try_parse_month_name_date(
         y
     } else {
         let mut current_y = now.year();
-        if let Some(d) = NaiveDate::from_ymd_opt(current_y, month, day) {
-            if let Some(ndt) = d.and_hms_opt(hour, min, sec) {
-                if let Ok(dt) = naive_to_local(&ndt, now) {
-                    if dt <= *now {
-                        current_y += 1;
-                    }
-                }
-            }
+        if let Some(d) = NaiveDate::from_ymd_opt(current_y, month, day)
+            && let Some(ndt) = d.and_hms_opt(hour, min, sec)
+            && let Ok(dt) = naive_to_local(&ndt, now)
+            && dt <= *now
+        {
+            current_y += 1;
         }
         current_y
     };
@@ -420,10 +414,10 @@ fn try_parse_time_only(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>
     let today_date = now.date_naive();
     let today_ndt = today_date.and_hms_opt(nt.hour(), nt.minute(), nt.second())?;
 
-    if let Ok(today_dt) = naive_to_local(&today_ndt, now) {
-        if today_dt > *now {
-            return Some(today_dt);
-        }
+    if let Ok(today_dt) = naive_to_local(&today_ndt, now)
+        && today_dt > *now
+    {
+        return Some(today_dt);
     }
 
     // Time has passed today -> assume tomorrow at the same time
@@ -485,12 +479,10 @@ fn resolve_keyword_date(kw: &str, time: NaiveTime, now: &DateTime<Local>) -> Opt
                 if let Some(ndt) =
                     now.date_naive()
                         .and_hms_opt(time.hour(), time.minute(), time.second())
+                    && let Ok(dt) = naive_to_local(&ndt, now)
+                    && dt <= *now
                 {
-                    if let Ok(dt) = naive_to_local(&ndt, now) {
-                        if dt <= *now {
-                            days_ahead = 7; // Target next week's day
-                        }
-                    }
+                    days_ahead = 7; // Target next week's day
                 }
             }
             now.date_naive()

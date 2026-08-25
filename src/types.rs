@@ -4,16 +4,12 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum Status {
+    #[default]
     Active,
     Missed,
     Triggered,
-}
-
-impl Default for Status {
-    fn default() -> Self {
-        Status::Active
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
