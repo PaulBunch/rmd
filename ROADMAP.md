@@ -110,7 +110,15 @@
 - [ ] Create AUR package for Arch Linux (AUR new-account registration closed as of 2026-08; revisit when open)
 - [ ] 2026-11-08: Submit [awesome-cli-apps](https://github.com/agarrharr/awesome-cli-apps)
 
-## Phase 8: Termux / Android Support
+## Phase 8: Documentation & System Man Page
+
+- [ ] Create `docs/TIME.md` as the single source of truth for date/time grammar, edge cases, and configuration defaults
+- [ ] Write `scdoc` man page source (`extra/rmd.1.scd`) covering synopsis, commands, environment variables, and date/time syntax
+- [ ] Update `Makefile` with `doc` generation target and install `rmd.1` to `$(PREFIX)/share/man/man1/`
+- [ ] Include pre-compiled `extra/rmd.1` in release `.tar.gz` archives (`release.yml`)
+- [ ] Refine time parser error output to point users to `--help` or `man rmd`
+
+## Phase 9: Termux / Android Support
 
 - [ ] Abstract notification backend logic to allow platform-specific implementations
 - [ ] Implement `termux-notification` backend (via `termux-api` call)
