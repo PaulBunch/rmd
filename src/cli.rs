@@ -449,6 +449,14 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_2pm_time_and_message() {
+        let args = to_vec(["2pm", "Buy", "milk"]);
+        let (time_spec, msg) = parse_time_and_message(&args, "09:00").unwrap();
+        assert_eq!(time_spec, "2pm");
+        assert_eq!(msg, "Buy milk");
+    }
+
+    #[test]
     fn test_parse_spaced_keyword_date_and_time() {
         let args = to_vec(["tomorrow", "15:00", "Call", "mom"]);
         let (time_spec, msg) = parse_time_and_message(&args, "09:00").unwrap();

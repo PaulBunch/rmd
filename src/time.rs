@@ -12,7 +12,7 @@ const SEC_PER_WEEK: i64 = 604800; // 7 days
 const SEC_PER_MONTH: i64 = 2_592_000; // 30 days
 const SEC_PER_YEAR: i64 = 31_536_000; // 365 days
 
-const KEYWORDS: [&str; 16] = [
+const KEYWORDS: [&str; 19] = [
     "wednesday",
     "thursday",
     "saturday",
@@ -29,6 +29,9 @@ const KEYWORDS: [&str; 16] = [
     "mon",
     "fri",
     "sun",
+    "tom",
+    "tmr",
+    "tod",
 ];
 
 /// Parses a time specifier string into a Unix timestamp in seconds.
@@ -156,6 +159,7 @@ fn parse_absolute_or_keyword(
     let s = input.trim();
 
     try_parse_custom_absolute(s, &now, default_time)
+        .or_else(|| try_parse_month_name_date(s, &now, default_time))
         .or_else(|| try_parse_time_only(s, &now))
         .or_else(|| try_parse_keyword_or_weekday(s, &now, default_time))
         .ok_or_else(|| anyhow!("Invalid date/time specifier: '{}'", input))
@@ -170,37 +174,28 @@ fn try_parse_custom_absolute(
     now: &DateTime<Local>,
     default_time: &str,
 ) -> Option<DateTime<Local>> {
-    // 1. Split date and time portions
-    // Normal separators between date and time: ' ', 'T', 't', '@'
-    let parts: Vec<&str> = s
-        .split(|c| matches!(c, ' ' | 'T' | 't' | '@'))
-        .filter(|p| !p.is_empty())
-        .collect();
-    if parts.is_empty() || parts.len() > 2 {
-        return None;
-    }
+    let s_clean = s.trim();
 
-    let date_str = parts[0];
-    let time_str = if parts.len() == 2 {
-        parts[1]
-    } else {
+    // 1. Separate date string and time string
+    let mut parts = s_clean.splitn(2, |c: char| c == ' ' || c == 'T' || c == 't' || c == '@');
+    let date_str = parts.next()?.trim();
+    let rest_time = parts
+        .next()
+        .map(|t| t.trim_start_matches(|c: char| c == '@' || c.is_whitespace()))
+        .unwrap_or("");
+
+    let time_str = if rest_time.is_empty() {
         default_time
-    };
-
-    // 2. Parse time portion (H:M[:S])
-    let time_parts: Vec<&str> = time_str.split(':').collect();
-    if time_parts.len() < 2 || time_parts.len() > 3 {
-        return None;
-    }
-    let hour: u32 = time_parts[0].parse().ok()?;
-    let min: u32 = time_parts[1].parse().ok()?;
-    let sec: u32 = if time_parts.len() == 3 {
-        time_parts[2].parse().ok()?
     } else {
-        0
+        rest_time
     };
 
-    // 3. Parse date portion
+    let nt = parse_raw_time(time_str).ok()?;
+    let hour = nt.hour();
+    let min = nt.minute();
+    let sec = nt.second();
+
+    // 2. Parse date portion
     // Detect separator
     let sep = if date_str.contains('.') {
         Some('.')
@@ -294,7 +289,131 @@ fn try_parse_custom_absolute(
     naive_to_local(&target_ndt, now).ok()
 }
 
-/// Parses time-only inputs: "HH:MM" or "HH:MM:SS".
+/// Parses dates containing full month names or standard abbreviations (case-insensitive).
+/// E.g., "15 November 2026 14:00", "Nov 15, 2026 2:00 PM", "15 Nov", "November 15 @ 2pm".
+fn try_parse_month_name_date(
+    s: &str,
+    now: &DateTime<Local>,
+    default_time: &str,
+) -> Option<DateTime<Local>> {
+    let clean_s = s.replace(',', " ").replace('@', " ");
+    let tokens: Vec<&str> = clean_s.split_whitespace().collect();
+    if tokens.is_empty() {
+        return None;
+    }
+
+    let mut month_idx = None;
+    let mut month_num = None;
+    for (i, t) in tokens.iter().enumerate() {
+        if let Some(m) = parse_month_name(t) {
+            month_idx = Some(i);
+            month_num = Some(m);
+            break;
+        }
+    }
+
+    let month_idx = month_idx?;
+    let month = month_num?;
+
+    let day: u32;
+    let next_token_idx: usize;
+
+    // Check Case 1: DD Month ...
+    if month_idx > 0 && month_idx == 1 {
+        if let Ok(d) = tokens[month_idx - 1].parse::<u32>() {
+            if (1..=31).contains(&d) {
+                day = d;
+                next_token_idx = month_idx + 1;
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }
+    } else if month_idx == 0 && tokens.len() > 1 {
+        // Case 2: Month DD ...
+        if let Ok(d) = tokens[1].parse::<u32>() {
+            if (1..=31).contains(&d) {
+                day = d;
+                next_token_idx = 2;
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    }
+
+    // Check for optional year in the next token
+    let mut year_opt: Option<i32> = None;
+    let mut time_start_idx = next_token_idx;
+
+    if next_token_idx < tokens.len() {
+        if let Ok(y) = tokens[next_token_idx].parse::<i32>() {
+            if (1000..=9999).contains(&y) {
+                year_opt = Some(y);
+                time_start_idx = next_token_idx + 1;
+            } else if (0..100).contains(&y) {
+                year_opt = Some(2000 + y);
+                time_start_idx = next_token_idx + 1;
+            }
+        }
+    }
+
+    let time_str = if time_start_idx < tokens.len() {
+        tokens[time_start_idx..].join(" ")
+    } else {
+        default_time.to_string()
+    };
+
+    let nt = parse_raw_time(&time_str).ok()?;
+    let hour = nt.hour();
+    let min = nt.minute();
+    let sec = nt.second();
+
+    let year = if let Some(y) = year_opt {
+        y
+    } else {
+        let mut current_y = now.year();
+        if let Some(d) = NaiveDate::from_ymd_opt(current_y, month, day) {
+            if let Some(ndt) = d.and_hms_opt(hour, min, sec) {
+                if let Ok(dt) = naive_to_local(&ndt, now) {
+                    if dt <= *now {
+                        current_y += 1;
+                    }
+                }
+            }
+        }
+        current_y
+    };
+
+    let target_date = NaiveDate::from_ymd_opt(year, month, day)?;
+    let target_ndt = target_date.and_hms_opt(hour, min, sec)?;
+    naive_to_local(&target_ndt, now).ok()
+}
+
+fn parse_month_name(token: &str) -> Option<u32> {
+    let clean = token
+        .trim_matches(|c: char| !c.is_alphabetic())
+        .to_lowercase();
+    match clean.as_str() {
+        "january" | "jan" => Some(1),
+        "february" | "feb" => Some(2),
+        "march" | "mar" => Some(3),
+        "april" | "apr" => Some(4),
+        "may" => Some(5),
+        "june" | "jun" => Some(6),
+        "july" | "jul" => Some(7),
+        "august" | "aug" => Some(8),
+        "september" | "sep" | "sept" => Some(9),
+        "october" | "oct" => Some(10),
+        "november" | "nov" => Some(11),
+        "december" | "dec" => Some(12),
+        _ => None,
+    }
+}
 /// Rolls over to tomorrow if the time has already passed today.
 fn try_parse_time_only(s: &str, now: &DateTime<Local>) -> Option<DateTime<Local>> {
     let nt = parse_raw_time(s).ok()?;
@@ -353,8 +472,8 @@ fn try_parse_keyword_or_weekday(
 /// Resolves the target target NaiveDate for keywords ("today", "tomorrow") or weekdays ("mon", "friday").
 fn resolve_keyword_date(kw: &str, time: NaiveTime, now: &DateTime<Local>) -> Option<NaiveDate> {
     match kw {
-        "today" => Some(now.date_naive()),
-        "tomorrow" => now.date_naive().succ_opt(),
+        "today" | "tod" => Some(now.date_naive()),
+        "tomorrow" | "tom" | "tmr" => now.date_naive().succ_opt(),
         _ => {
             let weekday = parse_weekday(kw).ok()?;
             let current_weekday = now.weekday();
@@ -383,9 +502,80 @@ fn resolve_keyword_date(kw: &str, time: NaiveTime, now: &DateTime<Local>) -> Opt
 // --- Helpers ---
 
 fn parse_raw_time(s: &str) -> Result<NaiveTime> {
-    NaiveTime::parse_from_str(s, "%H:%M:%S")
-        .or_else(|_| NaiveTime::parse_from_str(s, "%H:%M"))
-        .map_err(|_| anyhow!("Invalid time format"))
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow!("Empty time string"));
+    }
+
+    let lower = trimmed.to_lowercase();
+
+    // Check for AM/PM suffix
+    let (is_am, is_pm, time_part) = if lower.ends_with("am") {
+        (true, false, lower.strip_suffix("am").unwrap().trim())
+    } else if lower.ends_with("pm") {
+        (false, true, lower.strip_suffix("pm").unwrap().trim())
+    } else {
+        (false, false, lower.as_str())
+    };
+
+    if is_am || is_pm {
+        // 12-hour format parsing
+        let parts: Vec<&str> = time_part.split(':').collect();
+        let (hour_12, min, sec) = match parts.len() {
+            1 => {
+                let h: u32 = parts[0].parse().map_err(|_| anyhow!("Invalid hour"))?;
+                (h, 0, 0)
+            }
+            2 => {
+                let h: u32 = parts[0].parse().map_err(|_| anyhow!("Invalid hour"))?;
+                let m: u32 = parts[1].parse().map_err(|_| anyhow!("Invalid minute"))?;
+                (h, m, 0)
+            }
+            3 => {
+                let h: u32 = parts[0].parse().map_err(|_| anyhow!("Invalid hour"))?;
+                let m: u32 = parts[1].parse().map_err(|_| anyhow!("Invalid minute"))?;
+                let s: u32 = parts[2].parse().map_err(|_| anyhow!("Invalid second"))?;
+                (h, m, s)
+            }
+            _ => return Err(anyhow!("Invalid time format")),
+        };
+
+        if !(1..=12).contains(&hour_12) {
+            return Err(anyhow!("12-hour format hour must be between 1 and 12"));
+        }
+
+        let hour_24 = if is_pm {
+            if hour_12 == 12 { 12 } else { hour_12 + 12 }
+        } else {
+            if hour_12 == 12 { 0 } else { hour_12 }
+        };
+
+        NaiveTime::from_hms_opt(hour_24, min, sec).ok_or_else(|| anyhow!("Invalid time values"))
+    } else {
+        // 24-hour format parsing
+        if let Ok(nt) = NaiveTime::parse_from_str(trimmed, "%H:%M:%S") {
+            return Ok(nt);
+        }
+        if let Ok(nt) = NaiveTime::parse_from_str(trimmed, "%H:%M") {
+            return Ok(nt);
+        }
+
+        let parts: Vec<&str> = trimmed.split(':').collect();
+        if parts.len() == 2 || parts.len() == 3 {
+            let h: u32 = parts[0].parse().map_err(|_| anyhow!("Invalid hour"))?;
+            let m: u32 = parts[1].parse().map_err(|_| anyhow!("Invalid minute"))?;
+            let sec: u32 = if parts.len() == 3 {
+                parts[2].parse().map_err(|_| anyhow!("Invalid second"))?
+            } else {
+                0
+            };
+            if let Some(nt) = NaiveTime::from_hms_opt(h, m, sec) {
+                return Ok(nt);
+            }
+        }
+
+        Err(anyhow!("Invalid time format: '{}'", s))
+    }
 }
 
 fn parse_weekday(s: &str) -> Result<Weekday> {
@@ -636,5 +826,104 @@ mod tests {
                 .to_string(),
             "2026-08-15 14:30"
         );
+    }
+
+    #[test]
+    fn test_12_hour_am_pm_format() {
+        let now = ref_time(); // 2026-08-09 12:00:00
+
+        // AM/PM variations for time-only
+        let t_pm = parse_time_relative_to("02:00 PM", now, "09:00").unwrap();
+        let dt_pm = now.timezone().timestamp_opt(t_pm, 0).unwrap();
+        assert_eq!(
+            dt_pm.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2026-08-09 14:00:00"
+        );
+
+        let t_short_pm = parse_time_relative_to("2pm", now, "09:00").unwrap();
+        assert_eq!(t_pm, t_short_pm);
+
+        let t_space_pm = parse_time_relative_to("2 pm", now, "09:00").unwrap();
+        assert_eq!(t_pm, t_space_pm);
+
+        let t_am = parse_time_relative_to("09:30 AM", now, "09:00").unwrap();
+        let dt_am = now.timezone().timestamp_opt(t_am, 0).unwrap();
+        assert_eq!(
+            dt_am.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2026-08-10 09:30:00"
+        );
+
+        // 12am is midnight, 12pm is noon
+        let t_12pm = parse_time_relative_to("12:00 PM", now, "09:00").unwrap();
+        let dt_12pm = now.timezone().timestamp_opt(t_12pm, 0).unwrap();
+        assert_eq!(
+            dt_12pm.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2026-08-10 12:00:00"
+        );
+
+        let t_12am = parse_time_relative_to("12:00 AM", now, "09:00").unwrap();
+        let dt_12am = now.timezone().timestamp_opt(t_12am, 0).unwrap();
+        assert_eq!(
+            dt_12am.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2026-08-10 00:00:00"
+        );
+    }
+
+    #[test]
+    fn test_month_names_and_case_insensitivity() {
+        let now = ref_time(); // 2026-08-09 12:00:00
+
+        // Full month name & abbreviations (case-insensitive)
+        let t1 = parse_time_relative_to("15 November 2026 14:00", now, "09:00").unwrap();
+        let dt1 = now.timezone().timestamp_opt(t1, 0).unwrap();
+        assert_eq!(dt1.format("%Y-%m-%d %H:%M").to_string(), "2026-11-15 14:00");
+
+        let t2 = parse_time_relative_to("nov 15, 2026 2:00 PM", now, "09:00").unwrap();
+        assert_eq!(t1, t2);
+
+        let t3 = parse_time_relative_to("NOVEMBER 15 @ 2PM", now, "09:00").unwrap();
+        assert_eq!(t1, t3);
+
+        // Year omitted -> auto-calculates year
+        let t_nov = parse_time_relative_to("15 Nov 14:00", now, "09:00").unwrap();
+        assert_eq!(t1, t_nov);
+
+        // Past date in current year rolls over to next year (July 15 is before August 9)
+        let t_past_month = parse_time_relative_to("15 July 10:00 AM", now, "09:00").unwrap();
+        let dt_past_month = now.timezone().timestamp_opt(t_past_month, 0).unwrap();
+        assert_eq!(
+            dt_past_month.format("%Y-%m-%d %H:%M").to_string(),
+            "2027-07-15 10:00"
+        );
+    }
+
+    #[test]
+    fn test_short_relative_date_aliases() {
+        let now = ref_time(); // Sunday 2026-08-09 12:00:00
+
+        // "today" / "tod"
+        let t_tod = parse_time_relative_to("tod 15:00", now, "09:00").unwrap();
+        let dt_tod = now.timezone().timestamp_opt(t_tod, 0).unwrap();
+        assert_eq!(
+            dt_tod.format("%Y-%m-%d %H:%M").to_string(),
+            "2026-08-09 15:00"
+        );
+
+        let t_today = parse_time_relative_to("TODAY 15:00", now, "09:00").unwrap();
+        assert_eq!(t_tod, t_today);
+
+        // "tomorrow" / "tom" / "tmr"
+        let t_tom = parse_time_relative_to("tom 2pm", now, "09:00").unwrap();
+        let dt_tom = now.timezone().timestamp_opt(t_tom, 0).unwrap();
+        assert_eq!(
+            dt_tom.format("%Y-%m-%d %H:%M").to_string(),
+            "2026-08-10 14:00"
+        );
+
+        let t_tmr = parse_time_relative_to("TMR 02:00 PM", now, "09:00").unwrap();
+        assert_eq!(t_tom, t_tmr);
+
+        let t_tomorrow = parse_time_relative_to("Tomorrow 14:00", now, "09:00").unwrap();
+        assert_eq!(t_tom, t_tomorrow);
     }
 }

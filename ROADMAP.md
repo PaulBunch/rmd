@@ -78,10 +78,11 @@
 - [x] Add configurable default time for date-only specifications:
   - [x] Introduce `default_time` setting in `config.json` (e.g., `"09:00"`) to replace fallback midnight (`00:00:00`) when time is omitted
   - [x] Add `rmd config default-time <HH:MM>` subcommand to customize the default trigger time
-- [ ] Extend datetime parser in `time.rs` to support:
-  - [ ] 12-hour format with AM/PM indicators (e.g., `02:00 PM`, `2pm`)
-  - [ ] Full month names and standard abbreviations (case-insensitive, e.g., `November`, `Nov`)
-  - [ ] Short aliases for common relative dates (e.g., `today` / `tod`, `tomorrow` / `tmr` / `tom`)
+- [x] Extend datetime parser in `time.rs` to support:
+  - [x] 12-hour format with AM/PM indicators (e.g., `02:00 PM`, `2pm`)
+  - [x] Full month names and standard abbreviations (case-insensitive, e.g., `November`, `Nov`)
+  - [x] Short aliases for common relative dates (e.g., `today` / `tod`, `tomorrow` / `tmr` / `tom`)
+  - [x] Expand test coverage for new cases, including case-insensitivity checks
 
 ## Phase 7: Release & Distribution
 
