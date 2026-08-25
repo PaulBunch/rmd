@@ -1,5 +1,9 @@
 # rmd
 
+[![GitHub release](https://img.shields.io/github/v/release/PaulBunch/rmd)](https://github.com/PaulBunch/rmd/releases/latest)
+[![Crates.io](https://img.shields.io/crates/v/rmd-cli.svg)](https://crates.io/crates/rmd-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A lightweight, reliable reminder daemon and CLI for Linux.
 
 Set one-shot reminders that survive reboots and show up as desktop notifications.
@@ -38,7 +42,7 @@ systemctl --user enable --now rmd.service
 
 > **ARM64 / AArch64:** Replace `x86_64` with `aarch64` in the URL above.
 
-> If `rmd` is not found, add `~/.local/bin` (or `~/.cargo/bin`) to `PATH` and re-login.
+> If `rmd` is not found, add `~/.local/bin` to `PATH` and re-login.
 
 ### From crates.io
 
@@ -48,7 +52,7 @@ Requires Rust 1.85+.
 cargo install rmd-cli
 ```
 
-> If `rmd` is not found, add `~/.local/bin` (or `~/.cargo/bin`) to `PATH` and re-login.
+> If `rmd` is not found, add `~/.cargo/bin` to `PATH` and re-login.
 
 > **Note:** The CLI auto-spawns the background daemon on any command. However, to ensure scheduled reminders trigger after a reboot *before* you open a terminal, install and enable the systemd unit:
 > ```bash
