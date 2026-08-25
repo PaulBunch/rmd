@@ -90,6 +90,8 @@ systemctl --user enable --now rmd.service
 
 ## Usage
 
+[Time syntax](docs/TIME.md)
+
 ```bash
 # Relative duration (+ prefix optional, spaces allowed)
 rmd 45s Push the tempo
