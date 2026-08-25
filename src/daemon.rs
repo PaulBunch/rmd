@@ -145,8 +145,6 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) ->
         return false;
     }
 
-    let mut should_stop = false;
-
     let req: Request = match serde_json::from_str(&line) {
         Ok(r) => r,
         Err(e) => {
@@ -158,6 +156,17 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) ->
         }
     };
 
+    let (response, should_stop) = handle_request(req, reminders);
+
+    if let Ok(data) = serde_json::to_string(&response) {
+        let _ = writer.write_all(format!("{}\n", data).as_bytes()).await;
+    }
+
+    should_stop
+}
+
+fn handle_request(req: Request, reminders: &mut Vec<Reminder>) -> (Response, bool) {
+    let mut should_stop = false;
     let response = match req {
         Request::Stop => {
             should_stop = true;
@@ -202,22 +211,32 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) ->
                 .cloned()
                 .collect();
 
-            // Always start with chronological sorting
-            list.sort_by_key(|r| r.trigger_at);
+            // Sort based on filter requirements:
+            // Triggered, Missed, and History tables must be sorted in reverse chronological order (newest first).
+            // All other tables (Active, All/Log) remain chronological (oldest/earliest first).
+            let is_reversed = matches!(
+                filter,
+                ListFilter::History | ListFilter::Missed | ListFilter::Triggered
+            );
+
+            if is_reversed {
+                list.sort_by_key(|r| std::cmp::Reverse(r.trigger_at));
+            } else {
+                list.sort_by_key(|r| r.trigger_at);
+            }
 
             let total = list.len();
 
             if let Some(n) = limit {
-                if matches!(
-                    filter,
-                    ListFilter::History
-                        | ListFilter::Missed
-                        | ListFilter::Triggered
-                        | ListFilter::All
-                ) {
+                if is_reversed {
+                    // For reverse chronological lists, the most recent elements are at the beginning
+                    list.truncate(n);
+                } else if matches!(filter, ListFilter::All) {
+                    // For All (chronological), the most recent elements are at the end
                     let start = list.len().saturating_sub(n);
                     list = list.split_off(start);
                 } else {
+                    // For Active (chronological), the nearest upcoming elements are at the beginning
                     list.truncate(n);
                 }
             }
@@ -270,11 +289,7 @@ async fn handle_ipc_client(stream: UnixStream, reminders: &mut Vec<Reminder>) ->
         }
     };
 
-    if let Ok(data) = serde_json::to_string(&response) {
-        let _ = writer.write_all(format!("{}\n", data).as_bytes()).await;
-    }
-
-    should_stop
+    (response, should_stop)
 }
 
 // =========================================================================
@@ -325,5 +340,101 @@ mod tests {
         // Check that old history was left untouched
         assert_eq!(reminders[2].status, Status::Triggered);
         assert_eq!(reminders[2].id, ReminderId::History(1));
+    }
+
+    #[test]
+    fn test_list_filter_sorting_and_limiting() {
+        let now = chrono::Utc::now().timestamp();
+        let reminders = vec![
+            mock_reminder(ReminderId::Active(1), now + 10, Status::Active),
+            mock_reminder(ReminderId::Active(2), now + 20, Status::Active),
+            mock_reminder(ReminderId::History(1), now - 30, Status::Triggered),
+            mock_reminder(ReminderId::History(2), now - 20, Status::Triggered),
+            mock_reminder(ReminderId::History(3), now - 10, Status::Missed),
+        ];
+
+        // 1. List Active: should be sorted chronological (oldest/earliest first)
+        let (response, _) = handle_request(
+            Request::List {
+                filter: ListFilter::Active,
+                limit: None,
+            },
+            &mut reminders.clone(),
+        );
+        if let Response::List {
+            reminders: list,
+            total,
+        } = response
+        {
+            assert_eq!(total, 2);
+            assert_eq!(list[0].id, ReminderId::Active(1));
+            assert_eq!(list[1].id, ReminderId::Active(2));
+        } else {
+            panic!("Expected Response::List");
+        }
+
+        // 2. List History: should be sorted in reverse chronological (newest first: Missed at now-10, Triggered at now-20, Triggered at now-30)
+        let (response, _) = handle_request(
+            Request::List {
+                filter: ListFilter::History,
+                limit: None,
+            },
+            &mut reminders.clone(),
+        );
+        if let Response::List {
+            reminders: list,
+            total,
+        } = response
+        {
+            assert_eq!(total, 3);
+            assert_eq!(list[0].id, ReminderId::History(3)); // trigger_at: now - 10
+            assert_eq!(list[1].id, ReminderId::History(2)); // trigger_at: now - 20
+            assert_eq!(list[2].id, ReminderId::History(1)); // trigger_at: now - 30
+        } else {
+            panic!("Expected Response::List");
+        }
+
+        // 3. List History with limit 2: should return the 2 most recent in reverse chronological order
+        let (response, _) = handle_request(
+            Request::List {
+                filter: ListFilter::History,
+                limit: Some(2),
+            },
+            &mut reminders.clone(),
+        );
+        if let Response::List {
+            reminders: list,
+            total,
+        } = response
+        {
+            assert_eq!(total, 3);
+            assert_eq!(list.len(), 2);
+            assert_eq!(list[0].id, ReminderId::History(3)); // trigger_at: now - 10
+            assert_eq!(list[1].id, ReminderId::History(2)); // trigger_at: now - 20
+        } else {
+            panic!("Expected Response::List");
+        }
+
+        // 4. List All/Log with limit 3: should be chronological, returning the 3 most recent reminders (now-10, now+10, now+20) in chronological order
+        let (response, _) = handle_request(
+            Request::List {
+                filter: ListFilter::All,
+                limit: Some(3),
+            },
+            &mut reminders.clone(),
+        );
+        if let Response::List {
+            reminders: list,
+            total,
+        } = response
+        {
+            assert_eq!(total, 5);
+            assert_eq!(list.len(), 3);
+            assert_eq!(list[0].id, ReminderId::History(3)); // trigger_at: now - 10
+            assert_eq!(list[1].id, ReminderId::Active(1)); // trigger_at: now + 10
+            assert_eq!(list[2].id, ReminderId::Active(2)); // trigger_at: now + 20
+        } else {
+            panic!("Expected Response::List");
+        }
     }
 }
