@@ -105,8 +105,8 @@
   - [x] Push a `v*` tag and verify the binary runs on a machine without Rust
 - [x] Publish to [crates.io](https://crates.io) as `rmd-cli` (`cargo publish --dry-run`, then `cargo publish`)
 - [ ] Announce the binary release
+  - [x] 2026-08-25: post on X (screenshot; repo URL in the first reply)
   - [ ] Dev.to `#showdev` post (cover = CLI screenshot; embed `{% github PaulBunch/rmd %}`)
-  - [ ] 2026-08-25: post on X (screenshot; repo URL in the first reply)
   - [ ] Submit an update to [This Week in Rust](https://github.com/rust-lang/this-week-in-rust)
 - [ ] Create AUR package for Arch Linux (AUR new-account registration closed as of 2026-08; revisit when open)
 - [ ] 2026-11-08: Submit [awesome-cli-apps](https://github.com/agarrharr/awesome-cli-apps)
