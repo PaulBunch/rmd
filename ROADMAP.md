@@ -106,8 +106,13 @@
 - [x] Publish to [crates.io](https://crates.io) as `rmd-cli` (`cargo publish --dry-run`, then `cargo publish`)
 - [ ] Announce the binary release
   - [x] 2026-08-25: post on X (screenshot; repo URL in the first reply)
-  - [ ] Dev.to `#showdev` post (cover = CLI screenshot; embed `{% github PaulBunch/rmd %}`)
-  - [ ] Submit an update to [This Week in Rust](https://github.com/rust-lang/this-week-in-rust)
+  - [x] Dev.to `#showdev` post (cover = CLI screenshot; embed `{% github PaulBunch/rmd %}`)
+  - [ ] Terminal Trove: submit via web form (image required); email = follow-up only
+  - [ ] Habr: adapt Dev.to `#showdev` post (Sandbox if needed)
+  - [ ] Share rmd on r/rust (This Week in Rust (TWiR) editors pick Project/Tooling Updates from there)
+  - [ ] Share rmd on r/rust when posting eligibility is met (account age + karma; This Week in Rust (TWiR) editors may pick Project/Tooling Updates from there)
+  - [ ] Optional: nominate rmd-cli for Crate of the Week
+  - [ ] Optional: PR the DEV.to article into TWiR community section (not Project/Tooling)
 - [ ] Create AUR package for Arch Linux (AUR new-account registration closed as of 2026-08; revisit when open)
 - [ ] 2026-11-08: Submit [awesome-cli-apps](https://github.com/agarrharr/awesome-cli-apps)
 
