@@ -11,7 +11,8 @@ Set one-shot reminders that survive reboots and show up as desktop notifications
 > **Philosophy:** `rmd` is not a task manager. It is a zero-friction, hard-interrupt system designed to protect your flow state—reserving push notifications strictly for urgent, time-bound events (like food on the stove or an immediate meeting). Read the full [Design Vision](docs/VISION.md).
 
 <p align="center">
-  <img width="959" height="539" alt="rmd CLI usage example" src="https://github.com/user-attachments/assets/c6b2d4fc-9ebd-41e4-8051-6dace1fb8463" />
+  <img width="930" height="470" alt="rmd CLI usage example" src="https://github.com/user-attachments/assets/9ff19d49-d1c9-49d3-bdbc-813421a62db6" />
+
 </p>
 
 ## Features
