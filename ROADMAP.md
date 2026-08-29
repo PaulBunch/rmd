@@ -107,8 +107,8 @@
 - [ ] Announce the binary release
   - [x] 2026-08-25: post on X (screenshot; repo URL in the first reply)
   - [x] Dev.to `#showdev` post (cover = CLI screenshot; embed `{% github PaulBunch/rmd %}`)
-  - [ ] Terminal Trove: submit via web form (image required); email = follow-up only
-  - [ ] Habr: adapt Dev.to `#showdev` post (Sandbox if needed)
+  - [x] Terminal Trove: submit via web form (image required); email = follow-up only
+  - [x] Habr: adapt Dev.to `#showdev` post (Sandbox if needed)
   - [ ] Share rmd on r/rust (This Week in Rust (TWiR) editors pick Project/Tooling Updates from there)
   - [ ] Share rmd on r/rust when posting eligibility is met (account age + karma; This Week in Rust (TWiR) editors may pick Project/Tooling Updates from there)
   - [ ] Optional: nominate rmd-cli for Crate of the Week
