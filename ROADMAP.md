@@ -132,8 +132,11 @@
   - [ ] Determine if target use-case is full daemon or CLI-only DB viewer/editor
 - [ ] Write `build.sh` package recipe and submit PR to `termux/termux-packages` (if viable)
 
-## Phase 10: Extensibility & Trigger Hooks (Under Evaluation)
+## Phase 10: Extensibility & Notification Targets (Under Evaluation)
 
+- [ ] Support configurable D-Bus destination / service name
+  - [ ] Allow overriding target D-Bus service (default: `org.freedesktop.Notifications`) to support custom bridges, KDE Connect, or local relays
+  - [ ] Keep core architecture pure by delegating network/messenger delivery to external D-Bus listeners
 - [ ] Design non-blocking event hooks architecture for custom scripts on reminder trigger
   - [ ] Define scope and boundary: maintain core focus as a reminder manager (avoid overlap with `at` / `systemd-run`)
   - [ ] Determine execution semantics: async non-blocking execution, timeout limits, and environment context
