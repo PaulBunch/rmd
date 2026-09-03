@@ -124,10 +124,18 @@
 - [ ] Include pre-compiled `extra/rmd.1` in release `.tar.gz` archives (`release.yml`)
 - [ ] Refine time parser error output to point users to `--help` or `man rmd`
 
-## Phase 9: Termux / Android Support
+## Phase 9: Termux / Android Support (Under Evaluation)
 
-- [ ] Abstract notification backend logic to allow platform-specific implementations
-- [ ] Implement `termux-notification` backend (via `termux-api` call)
-- [ ] Verify background daemon auto-spawning without systemd reliance
-- [ ] Write `build.sh` package recipe for `termux-packages`
-- [ ] Submit PR to the official `termux/termux-packages` repository
+- [ ] Evaluate feasibility and battery/lifecycle constraints of background daemon under Termux
+  - [ ] Abstract notification backend logic to allow platform-specific implementations (`termux-notification` via `termux-api`)
+  - [ ] Test daemon reliability without systemd (auto-spawning vs `termux-services` vs Android process killers)
+  - [ ] Determine if target use-case is full daemon or CLI-only DB viewer/editor
+- [ ] Write `build.sh` package recipe and submit PR to `termux/termux-packages` (if viable)
+
+## Phase 10: Extensibility & Trigger Hooks (Under Evaluation)
+
+- [ ] Design non-blocking event hooks architecture for custom scripts on reminder trigger
+  - [ ] Define scope and boundary: maintain core focus as a reminder manager (avoid overlap with `at` / `systemd-run`)
+  - [ ] Determine execution semantics: async non-blocking execution, timeout limits, and environment context
+  - [ ] Handle missed reminders edge-case (avoid script execution storms on daemon catch-up after system sleep)
+  - [ ] Prototype optional `on_trigger_exec` or D-Bus event broadcasting
