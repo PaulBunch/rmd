@@ -17,7 +17,7 @@ The project follows a client-server (IPC) architecture over **Unix Domain Socket
 * **`serde` / `serde_json`** — Serialization framework for JSON persistence and newline-delimited IPC protocol messages.
 * **`clap`** — CLI argument parsing with declarative subcommand structures.
 * **`chrono`** — Local time handling, relative/absolute parsing, and timestamp calculations.
-* **`notify-rust`** — D-Bus client for sending native desktop notifications across Wayland and X11 environments.
+* **`zbus`** — D-Bus client for sending native desktop notifications to configurable service destinations.
 
 ## Missed Reminders Recovery
 

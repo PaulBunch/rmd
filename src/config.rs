@@ -10,6 +10,7 @@ pub struct Config {
     pub time_format: TimeFormat,
     pub limit: usize,
     pub default_time: String,
+    pub dbus_service: String,
 }
 
 impl Default for Config {
@@ -18,6 +19,7 @@ impl Default for Config {
             time_format: TimeFormat::Human,
             limit: 5,
             default_time: "09:00".to_string(),
+            dbus_service: "org.freedesktop.Notifications".to_string(),
         }
     }
 }
@@ -69,4 +71,26 @@ pub fn save_config(config: &Config) -> Result<()> {
     std::fs::rename(tmp_path, path)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_default_values() {
+        let config = Config::default();
+        assert_eq!(config.dbus_service, "org.freedesktop.Notifications");
+        assert_eq!(config.limit, 5);
+        assert_eq!(config.default_time, "09:00");
+    }
+
+    #[test]
+    fn test_config_deserialization_fallback() {
+        // Test that old JSON without dbus_service populates the default value
+        let json_data = r#"{"limit": 10, "default_time": "10:00"}"#;
+        let config: Config = serde_json::from_str(json_data).unwrap();
+        assert_eq!(config.dbus_service, "org.freedesktop.Notifications");
+        assert_eq!(config.limit, 10);
+    }
 }

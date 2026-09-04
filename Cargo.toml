@@ -24,7 +24,7 @@ clap = { version = "4", features = ["derive"] }
 # Date & time handling
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 # Desktop notifications via D-Bus
-notify-rust = "4"
+zbus = "5"
 # Application-level error handling
 anyhow = "1.0"
 # Standard system paths (XDG specifications)

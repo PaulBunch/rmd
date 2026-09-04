@@ -132,13 +132,20 @@
   - [ ] Determine if target use-case is full daemon or CLI-only DB viewer/editor
 - [ ] Write `build.sh` package recipe and submit PR to `termux/termux-packages` (if viable)
 
-## Phase 10: Extensibility & Notification Targets (Under Evaluation)
+## Phase 10: Extensibility & Notification Targets
 
-- [ ] Support configurable D-Bus destination / service name
-  - [ ] Allow overriding target D-Bus service (default: `org.freedesktop.Notifications`) to support custom bridges, KDE Connect, or local relays
-  - [ ] Keep core architecture pure by delegating network/messenger delivery to external D-Bus listeners
-- [ ] Design non-blocking event hooks architecture for custom scripts on reminder trigger
+- [x] Support configurable D-Bus destination / service name
+  - [x] Allow overriding target D-Bus service (default: `org.freedesktop.Notifications`)
+  - [x] Keep core architecture pure by delegating further delivery (bridges, messengers, phone) to external D-Bus listeners
+  - [x] Document limitations: Notifications are only delivered while the machine is awake. On suspend, the daemon is frozen and notifications are delayed until resume (appearing as missed).
+- [ ] Design non-blocking event hooks architecture for custom scripts on reminder trigger (Under Evaluation)
   - [ ] Define scope and boundary: maintain core focus as a reminder manager (avoid overlap with `at` / `systemd-run`)
   - [ ] Determine execution semantics: async non-blocking execution, timeout limits, and environment context
   - [ ] Handle missed reminders edge-case (avoid script execution storms on daemon catch-up after system sleep)
   - [ ] Prototype optional `on_trigger_exec` or D-Bus event broadcasting
+
+## Future / Optional Improvements
+
+- [ ] Extend D-Bus target configuration to allow custom object path and interface
+  - [ ] Currently hardcoded to path `/org/freedesktop/Notifications` and interface `org.freedesktop.Notifications` (compatible with 95%+ of desktop notification services and bridges).
+  - [ ] Optionally allow specifying `dbus_path` and `dbus_interface` in `config.json` if non-standard custom D-Bus receivers require custom endpoints.

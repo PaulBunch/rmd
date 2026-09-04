@@ -46,6 +46,11 @@ pub enum ConfigCommands {
         #[arg(value_name = "HH:MM")]
         time: String,
     },
+    /// Set the D-Bus service name destination for notifications
+    DbusService {
+        /// D-Bus service name (e.g., org.freedesktop.Notifications)
+        service: String,
+    },
     /// Reset all configuration settings to default values
     Reset {
         /// Skip confirmation prompt
@@ -212,6 +217,11 @@ pub fn handle_config_command(cmd: ConfigCommands, config: &mut Config) -> Result
             save_config(config)?;
             println!("✓ Default time set to '{}'", time);
         }
+        ConfigCommands::DbusService { service } => {
+            set_dbus_service(config, &service)?;
+            save_config(config)?;
+            println!("✓ D-Bus service set to '{}'", config.dbus_service);
+        }
         ConfigCommands::Reset { yes } => {
             let msg = "Reset all configuration settings to defaults?";
             if !prompt_confirm(msg, yes) {
@@ -277,6 +287,16 @@ async fn handle_info_command(ids: Vec<ReminderId>, config: &Config) -> Result<()
         ui::print_reminder_info(reminder, &config.time_format);
     }
 
+    Ok(())
+}
+
+/// Validates and updates the D-Bus service name in the configuration.
+fn set_dbus_service(config: &mut Config, service: &str) -> Result<()> {
+    let service = service.trim().to_string();
+    if service.is_empty() {
+        anyhow::bail!("D-Bus service name cannot be empty.");
+    }
+    config.dbus_service = service;
     Ok(())
 }
 
@@ -498,5 +518,21 @@ mod tests {
                 .to_string()
                 .contains("Target time is in the past")
         );
+    }
+
+    #[test]
+    fn test_set_dbus_service() {
+        let mut config = Config::default();
+
+        // Valid service name
+        assert!(set_dbus_service(&mut config, "  org.kde.kdeconnect  ").is_ok());
+        assert_eq!(config.dbus_service, "org.kde.kdeconnect");
+
+        // Invalid service names
+        assert!(set_dbus_service(&mut config, "").is_err());
+        assert!(set_dbus_service(&mut config, "   ").is_err());
+
+        // Ensure old value is preserved on error
+        assert_eq!(config.dbus_service, "org.kde.kdeconnect");
     }
 }

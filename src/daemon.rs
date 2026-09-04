@@ -22,6 +22,41 @@ pub fn sync_on_startup(reminders: &mut [Reminder]) {
     }
 }
 
+async fn send_notification(service: &str, summary: &str, body: &str) {
+    if let Err(e) = send_notification_inner(service, summary, body).await {
+        eprintln!(
+            "Failed to send notification via D-Bus service '{}': {}",
+            service, e
+        );
+    }
+}
+
+async fn send_notification_inner(service: &str, summary: &str, body: &str) -> Result<()> {
+    let connection = zbus::Connection::session().await?;
+    let mut hints = std::collections::HashMap::new();
+    hints.insert("urgency", zbus::zvariant::Value::from(2u8));
+
+    connection
+        .call_method(
+            Some(service),
+            "/org/freedesktop/Notifications",
+            Some("org.freedesktop.Notifications"),
+            "Notify",
+            &(
+                "rmd",
+                0u32,
+                "",
+                summary,
+                body,
+                Vec::<&str>::new(),
+                hints,
+                -1i32,
+            ),
+        )
+        .await?;
+    Ok(())
+}
+
 pub async fn run() -> Result<()> {
     let socket_path = get_socket_path();
 
@@ -53,12 +88,7 @@ pub async fn run() -> Result<()> {
     if !newly_missed.is_empty() {
         let notifications = ui::build_missed_notifications(&newly_missed, &config.time_format);
         for n in notifications {
-            let _ = notify_rust::Notification::new()
-                .summary(&n.summary)
-                .body(&n.body)
-                .urgency(notify_rust::Urgency::Critical)
-                .timeout(notify_rust::Timeout::Never)
-                .show();
+            send_notification(&config.dbus_service, &n.summary, &n.body).await;
         }
         let _ = save_reminders(&reminders);
     }
@@ -102,12 +132,7 @@ pub async fn run() -> Result<()> {
                         r.id = ReminderId::History(history_alloc.next_id()); // <- Go to history
                         status_changed = true;
 
-                        let _ = notify_rust::Notification::new()
-                            .summary("Reminder")
-                            .body(&r.message)
-                            .urgency(notify_rust::Urgency::Critical)
-                            .timeout(notify_rust::Timeout::Never)
-                            .show();
+                        send_notification(&config.dbus_service, "Reminder", &r.message).await;
                     }
                 }
 

@@ -32,7 +32,7 @@ See `docs/VISION.md` and `docs/SPECIFICATION.md`.
 ## Architecture constraints
 - CLI ↔ daemon over Unix domain socket (`$XDG_RUNTIME_DIR/rmd.sock`)
 - State: atomic JSON writes (tmp → fsync → rename) to `$XDG_STATE_HOME/rmd/reminders.json`
-- Notifications: D-Bus via `notify-rust`
+- Notifications: D-Bus via `zbus` (configurable destination)
 - Tokio runtime: keep footprint small (`current_thread` style where possible)
 - Do not turn this into a task manager (no tags, priorities, recurring complex schedules)
 

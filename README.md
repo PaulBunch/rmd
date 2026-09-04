@@ -174,6 +174,15 @@ journalctl --user -u rmd.service -f
 * When a reminder triggers, a desktop notification is dispatched via D-Bus
 * On startup, the daemon checks for and handles any missed reminders
 
+### Sleep & Suspend Limitation
+
+`rmd` is a lightweight daemon that relies on the system being awake to trigger notifications. If your computer is suspended (asleep) when a reminder is scheduled:
+1. The daemon is frozen and cannot send the notification at the exact time.
+2. Upon resume, the daemon detects the missed reminder.
+3. The notification is sent immediately but marked as "Missed".
+
+For reliable delivery when the machine is asleep, ensure the system stays awake or use an external D-Bus relay/bridge that handles off-system delivery.
+
 ## Configuration & Paths
 
 View current settings and active configuration file location:
@@ -185,10 +194,11 @@ rmd config show
 Manage options via CLI:
 
 ```bash
-rmd config time-format human   # Set display time format (human, iso)
-rmd config limit 10            # Set default active reminders limit
-rmd config default-time 11:00  # Set default time for date-only specs
-rmd config reset               # Reset configuration to default values
+rmd config time-format human                   # Set display time format (human, iso)
+rmd config limit 10                            # Set default active reminders limit
+rmd config default-time 11:00                  # Set default time for date-only specs
+rmd config dbus-service org.example.MyBridge   # Set custom D-Bus notification target
+rmd config reset                               # Reset configuration to default values
 ```
 
 ### File Locations
