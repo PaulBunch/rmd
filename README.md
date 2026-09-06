@@ -127,7 +127,10 @@ rmd log [n]          # Full chronological list (aliases: all, everything)
 # View detailed info for specific reminder(s)
 rmd 3
 rmd 1 2 5
+rmd 1:5            # Range of active reminders (1, 2, 3, 4, 5)
+rmd h10-15         # Range of history reminders (h10, h11, h12, h13, h14, h15)
 # or: rmd info 1 2 5
+# or: rmd info 5:10 18 3
 
 # --- Management & Cleanup ---
 
@@ -138,6 +141,8 @@ rmd clean -y         # Skip confirmation prompt
 # Remove specific reminders by ID
 rmd rm 3
 rmd rm 1 2 5 -y      # Skip confirmation prompt
+rmd rm 5-10 18 3     # Range and individual IDs mixed
+rmd rm h1:h5         # Remove history reminders in range
 ```
 
 > **Tip:** Quotes around date/time or message are optional. `rmd tomorrow 15:00 Call mom` and `rmd "tomorrow 15:00" "Call mom"` work identically.

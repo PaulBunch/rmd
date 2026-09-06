@@ -49,6 +49,51 @@ impl fmt::Display for ParseReminderIdError {
 }
 impl std::error::Error for ParseReminderIdError {}
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdOrRange(pub Vec<ReminderId>);
+
+impl FromStr for IdOrRange {
+    type Err = ParseReminderIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err(ParseReminderIdError);
+        }
+
+        if let Some(pos) = s.find(':').or_else(|| s.find('-')) {
+            let (left_str, right_str) = s.split_at(pos);
+            let right_str = &right_str[1..]; // skip the delimiter
+
+            let left = left_str.trim().parse::<ReminderId>()?;
+            let right_parsed = right_str.trim().parse::<ReminderId>();
+
+            let right = match (left, right_parsed) {
+                (ReminderId::History(_), Ok(ReminderId::Active(num))) => ReminderId::History(num),
+                (_, Ok(rid)) => rid,
+                (_, Err(_)) => return Err(ParseReminderIdError),
+            };
+
+            match (left, right) {
+                (ReminderId::Active(start), ReminderId::Active(end)) => {
+                    let min = start.min(end);
+                    let max = start.max(end);
+                    Ok(IdOrRange((min..=max).map(ReminderId::Active).collect()))
+                }
+                (ReminderId::History(start), ReminderId::History(end)) => {
+                    let min = start.min(end);
+                    let max = start.max(end);
+                    Ok(IdOrRange((min..=max).map(ReminderId::History).collect()))
+                }
+                _ => Err(ParseReminderIdError),
+            }
+        } else {
+            let id = s.parse::<ReminderId>()?;
+            Ok(IdOrRange(vec![id]))
+        }
+    }
+}
+
 impl FromStr for ReminderId {
     type Err = ParseReminderIdError;
 
@@ -178,7 +223,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // 1. ReminderId parsing and formatting tests
+    // ReminderId parsing and formatting tests
     // -------------------------------------------------------------------------
     #[test]
     fn test_reminder_id_parsing() {
@@ -214,7 +259,99 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // 2. ID allocation algorithm tests
+    // IdOrRange parsing tests
+    // -------------------------------------------------------------------------
+    #[test]
+    fn test_id_or_range_parsing() {
+        // Single active ID
+        assert_eq!(
+            "5".parse::<IdOrRange>().unwrap(),
+            IdOrRange(vec![ReminderId::Active(5)])
+        );
+
+        // Single history ID
+        assert_eq!(
+            "h5".parse::<IdOrRange>().unwrap(),
+            IdOrRange(vec![ReminderId::History(5)])
+        );
+
+        // Active range with colon
+        assert_eq!(
+            "5:8".parse::<IdOrRange>().unwrap(),
+            IdOrRange(vec![
+                ReminderId::Active(5),
+                ReminderId::Active(6),
+                ReminderId::Active(7),
+                ReminderId::Active(8)
+            ])
+        );
+
+        // Active range with dash
+        assert_eq!(
+            "5-8".parse::<IdOrRange>().unwrap(),
+            IdOrRange(vec![
+                ReminderId::Active(5),
+                ReminderId::Active(6),
+                ReminderId::Active(7),
+                ReminderId::Active(8)
+            ])
+        );
+
+        // Reverse range
+        assert_eq!(
+            "8-5".parse::<IdOrRange>().unwrap(),
+            IdOrRange(vec![
+                ReminderId::Active(5),
+                ReminderId::Active(6),
+                ReminderId::Active(7),
+                ReminderId::Active(8)
+            ])
+        );
+
+        // History range both with prefixes
+        assert_eq!(
+            "h5-h8".parse::<IdOrRange>().unwrap(),
+            IdOrRange(vec![
+                ReminderId::History(5),
+                ReminderId::History(6),
+                ReminderId::History(7),
+                ReminderId::History(8)
+            ])
+        );
+
+        // History range with inherited prefix
+        assert_eq!(
+            "h5-8".parse::<IdOrRange>().unwrap(),
+            IdOrRange(vec![
+                ReminderId::History(5),
+                ReminderId::History(6),
+                ReminderId::History(7),
+                ReminderId::History(8)
+            ])
+        );
+
+        // Capital H history range with inherited prefix
+        assert_eq!(
+            "H5:8".parse::<IdOrRange>().unwrap(),
+            IdOrRange(vec![
+                ReminderId::History(5),
+                ReminderId::History(6),
+                ReminderId::History(7),
+                ReminderId::History(8)
+            ])
+        );
+
+        // Errors: invalid single ID
+        assert!("abc".parse::<IdOrRange>().is_err());
+        // Errors: invalid bounds
+        assert!("5-abc".parse::<IdOrRange>().is_err());
+        assert!("abc-5".parse::<IdOrRange>().is_err());
+        // Errors: mixed active/history range where history is second but active is first
+        assert!("5-h8".parse::<IdOrRange>().is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // ID allocation algorithm tests
     // -------------------------------------------------------------------------
     #[test]
     fn test_id_allocator_empty() {

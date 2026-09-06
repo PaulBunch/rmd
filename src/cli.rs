@@ -1,7 +1,7 @@
 use crate::config::{Config, get_config_path, save_config};
 use crate::ipc::{ListFilter, Request, Response, send_ipc, send_request};
 use crate::time::parse_time;
-use crate::types::{Reminder, ReminderId, TimeFormat};
+use crate::types::{IdOrRange, Reminder, ReminderId, TimeFormat};
 use crate::ui;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -107,7 +107,7 @@ pub enum Commands {
     Info {
         /// Reminder IDs to inspect
         #[arg(required = true, num_args = 1..)]
-        ids: Vec<ReminderId>,
+        ids: Vec<IdOrRange>,
     },
     /// Purge finished (triggered/missed) reminders from state
     Clean {
@@ -119,7 +119,7 @@ pub enum Commands {
     Rm {
         /// Reminder IDs to delete
         #[arg(required = true, num_args = 1..)]
-        ids: Vec<ReminderId>,
+        ids: Vec<IdOrRange>,
 
         /// Skip confirmation prompt
         #[arg(short, long)]
@@ -238,7 +238,8 @@ pub fn handle_config_command(cmd: ConfigCommands, config: &mut Config) -> Result
 }
 
 /// Handles inspection of specific reminders by ID
-async fn handle_info_command(ids: Vec<ReminderId>, config: &Config) -> Result<()> {
+async fn handle_info_command(ids: Vec<IdOrRange>, config: &Config) -> Result<()> {
+    let ids: Vec<ReminderId> = ids.into_iter().flat_map(|r| r.0).collect();
     let response = send_ipc(Request::List {
         filter: ListFilter::All,
         limit: None,
@@ -375,6 +376,7 @@ pub async fn handle_command(cmd: Commands, config: &mut Config) -> Result<()> {
             send_request(Request::Clean, config).await?
         }
         Commands::Rm { ids, yes } => {
+            let ids: Vec<ReminderId> = ids.into_iter().flat_map(|r| r.0).collect();
             let response = send_ipc(Request::List {
                 filter: ListFilter::All,
                 limit: None,
@@ -430,11 +432,11 @@ pub async fn handle_command(cmd: Commands, config: &mut Config) -> Result<()> {
 }
 
 pub async fn handle_raw_args(raw_args: &[String], config: &Config) -> Result<()> {
-    // Check if raw_args consists solely of numbers (reminder IDs)
+    // Check if raw_args consists solely of numbers/ranges (reminder IDs)
     if let Ok(ids) = raw_args
         .iter()
-        .map(|s| s.parse::<ReminderId>())
-        .collect::<Result<Vec<ReminderId>, _>>()
+        .map(|s| s.parse::<IdOrRange>())
+        .collect::<Result<Vec<IdOrRange>, _>>()
     {
         handle_info_command(ids, config).await?;
     } else {
