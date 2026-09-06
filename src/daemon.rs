@@ -22,11 +22,12 @@ pub fn sync_on_startup(reminders: &mut [Reminder]) {
     }
 }
 
-async fn send_notification(service: &str, summary: &str, body: &str) {
-    if let Err(e) = send_notification_inner(service, summary, body).await {
+async fn send_notification(summary: &str, body: &str) {
+    let config = load_config();
+    if let Err(e) = send_notification_inner(&config.dbus_service, summary, body).await {
         eprintln!(
             "Failed to send notification via D-Bus service '{}': {}",
-            service, e
+            config.dbus_service, e
         );
     }
 }
@@ -88,7 +89,7 @@ pub async fn run() -> Result<()> {
     if !newly_missed.is_empty() {
         let notifications = ui::build_missed_notifications(&newly_missed, &config.time_format);
         for n in notifications {
-            send_notification(&config.dbus_service, &n.summary, &n.body).await;
+            send_notification(&n.summary, &n.body).await;
         }
         let _ = save_reminders(&reminders);
     }
@@ -132,7 +133,7 @@ pub async fn run() -> Result<()> {
                         r.id = ReminderId::History(history_alloc.next_id()); // <- Go to history
                         status_changed = true;
 
-                        send_notification(&config.dbus_service, "Reminder", &r.message).await;
+                        send_notification("Reminder", &r.message).await;
                     }
                 }
 
