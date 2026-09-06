@@ -4,7 +4,7 @@
 Linux reminder CLI + background daemon.
 Single binary (`rmd`), package name `rmd-cli`.
 Edition 2024. Philosophy: one-shot hard interrupts, not a task manager.
-See `docs/VISION.md` and `docs/SPECIFICATION.md`.
+See `docs/VISION.md` and `docs/spec.md`.
 
 ## Layout
 - `src/main.rs`       — entry point
