@@ -109,8 +109,7 @@
   - [x] Dev.to `#showdev` post (cover = CLI screenshot; embed `{% github PaulBunch/rmd %}`)
   - [x] Terminal Trove: submit via web form (image required); email = follow-up only
   - [x] Habr: adapt Dev.to `#showdev` post (Sandbox if needed)
-  - [ ] Share rmd on r/rust (This Week in Rust (TWiR) editors pick Project/Tooling Updates from there)
-  - [ ] Share rmd on r/rust when posting eligibility is met (account age + karma; This Week in Rust (TWiR) editors may pick Project/Tooling Updates from there)
+  - [x] Share rmd on r/rust (This Week in Rust (TWiR) editors pick Project/Tooling Updates from there)
   - [ ] Optional: nominate rmd-cli for Crate of the Week
   - [ ] Optional: PR the DEV.to article into TWiR community section (not Project/Tooling)
 - [ ] Create AUR package for Arch Linux (AUR new-account registration closed as of 2026-08; revisit when open)
